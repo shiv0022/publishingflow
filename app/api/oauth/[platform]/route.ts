@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getOAuthRedirectUri } from '@/lib/oauthUrl';
+import {
+  getFacebookOAuthRedirectUri,
+  getInstagramOAuthRedirectUri,
+  getYouTubeOAuthRedirectUri,
+} from '@/lib/oauthUrl';
 
 /**
  * Server-Side OAuth Initiation Handler
@@ -25,7 +29,7 @@ export async function GET(
       );
     }
 
-    const redirectUri = getOAuthRedirectUri('facebook', request);
+    const redirectUri = getFacebookOAuthRedirectUri(request);
     const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts';
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
@@ -45,7 +49,7 @@ export async function GET(
       );
     }
 
-    const redirectUri = getOAuthRedirectUri('instagram', request);
+    const redirectUri = getInstagramOAuthRedirectUri(request);
     const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list';
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
@@ -65,7 +69,7 @@ export async function GET(
       );
     }
 
-    const redirectUri = getOAuthRedirectUri('youtube', request);
+    const redirectUri = getYouTubeOAuthRedirectUri(request);
     const scope = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly';
 
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
