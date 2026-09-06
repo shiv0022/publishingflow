@@ -104,7 +104,7 @@ export async function getValidAccessToken(accountId: string): Promise<{
 
       console.log(`[OAuth Auto-Refresh]: Refreshing Meta token for account ${account.client_name}...`);
       const metaRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${account.oauth_access_token}`
+        `https://graph.facebook.com/v22.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${account.oauth_access_token}`
       );
 
       const metaData = await metaRes.json();

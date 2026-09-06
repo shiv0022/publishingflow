@@ -26,9 +26,9 @@ export async function GET(
     }
 
     const redirectUri = getOAuthRedirectUri('facebook', request);
-    const scopes = 'pages_show_list,pages_read_engagement,pages_manage_posts';
+    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts';
 
-    const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+    const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
 
@@ -46,9 +46,9 @@ export async function GET(
     }
 
     const redirectUri = getOAuthRedirectUri('instagram', request);
-    const scopes = 'instagram_basic,instagram_content_publish,pages_show_list';
+    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list';
 
-    const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+    const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
 

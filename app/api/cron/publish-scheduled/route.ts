@@ -94,7 +94,7 @@ async function handleScheduleWorker(request: NextRequest) {
 
         if (account.platform === 'Facebook') {
           const pageId = oauthAccountId || 'me';
-          const fbRes = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
+          const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -114,7 +114,7 @@ async function handleScheduleWorker(request: NextRequest) {
             throw new Error('Instagram requires a public media URL');
           }
           const containerRes = await fetch(
-            `https://graph.facebook.com/v19.0/${igUserId}/media?image_url=${encodeURIComponent(post.media_url)}&caption=${encodeURIComponent(messageContent)}&access_token=${accessToken}`,
+            `https://graph.facebook.com/v22.0/${igUserId}/media?image_url=${encodeURIComponent(post.media_url)}&caption=${encodeURIComponent(messageContent)}&access_token=${accessToken}`,
             { method: 'POST' }
           );
           const containerData = await containerRes.json();
@@ -123,7 +123,7 @@ async function handleScheduleWorker(request: NextRequest) {
           }
           await new Promise((r) => setTimeout(r, 2000));
           const pubRes = await fetch(
-            `https://graph.facebook.com/v19.0/${igUserId}/media_publish?creation_id=${containerData.id}&access_token=${accessToken}`,
+            `https://graph.facebook.com/v22.0/${igUserId}/media_publish?creation_id=${containerData.id}&access_token=${accessToken}`,
             { method: 'POST' }
           );
           const pubData = await pubRes.json();

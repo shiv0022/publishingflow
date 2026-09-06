@@ -48,7 +48,7 @@ export async function GET(
 
       // 1. Exchange code for short-lived access token
       const tokenRes = await fetch(
-        `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+        `https://graph.facebook.com/v22.0/oauth/access_token?client_id=${clientId}&redirect_uri=${encodeURIComponent(
           redirectUri
         )}&client_secret=${clientSecret}&code=${code}`
       );
@@ -58,27 +58,74 @@ export async function GET(
         throw new Error(tokenData.error?.message || 'Failed to exchange Meta access token');
       }
 
-      accessToken = tokenData.access_token;
+      let userAccessToken = tokenData.access_token;
 
       // 2. Exchange for 60-day long-lived access token
       try {
         const longLivedRes = await fetch(
-          `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${accessToken}`
+          `https://graph.facebook.com/v22.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${userAccessToken}`
         );
         const longLivedData = await longLivedRes.json();
         if (longLivedData.access_token) {
-          accessToken = longLivedData.access_token;
+          userAccessToken = longLivedData.access_token;
           expiresAt = new Date(Date.now() + (longLivedData.expires_in || 5184000) * 1000).toISOString();
         }
       } catch (e) {
         console.warn('Long lived exchange warning:', e);
       }
 
-      // 3. Fetch profile information
-      const meRes = await fetch(`https://graph.facebook.com/me?access_token=${accessToken}`);
-      const meData = await meRes.json();
-      accountId = meData.id || `meta-${Date.now()}`;
-      clientName = meData.name || (platformKey === 'instagram' ? 'Instagram Account' : 'Facebook Page');
+      accessToken = userAccessToken;
+
+      // 3. Meta Page Access-Token Flow
+      if (platformKey === 'facebook') {
+        // Query user's Facebook Pages to acquire the Page Access Token for publishing
+        const accountsRes = await fetch(
+          `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,access_token,category,tasks&access_token=${userAccessToken}`
+        );
+        const accountsData = await accountsRes.json();
+
+        if (accountsData.data && Array.isArray(accountsData.data) && accountsData.data.length > 0) {
+          const targetPage = accountsData.data.find(
+            (p: any) => p.tasks?.includes('CREATE_CONTENT') || p.tasks?.includes('MANAGE')
+          ) || accountsData.data[0];
+
+          accountId = targetPage.id;
+          clientName = targetPage.name;
+          accessToken = targetPage.access_token || userAccessToken;
+        } else {
+          // Fallback to user profile if no managed pages found
+          const meRes = await fetch(`https://graph.facebook.com/v22.0/me?access_token=${userAccessToken}`);
+          const meData = await meRes.json();
+          accountId = meData.id || `meta-${Date.now()}`;
+          clientName = meData.name || 'Facebook Page';
+        }
+      } else if (platformKey === 'instagram') {
+        // Query linked Instagram Business Account from managed pages
+        const accountsRes = await fetch(
+          `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,access_token,instagram_business_account{id,username,name}&access_token=${userAccessToken}`
+        );
+        const accountsData = await accountsRes.json();
+
+        let igFound = false;
+        if (accountsData.data && Array.isArray(accountsData.data)) {
+          for (const page of accountsData.data) {
+            if (page.instagram_business_account) {
+              accountId = page.instagram_business_account.id;
+              clientName = page.instagram_business_account.username || page.instagram_business_account.name || page.name;
+              accessToken = page.access_token || userAccessToken;
+              igFound = true;
+              break;
+            }
+          }
+        }
+
+        if (!igFound) {
+          const meRes = await fetch(`https://graph.facebook.com/v22.0/me?access_token=${userAccessToken}`);
+          const meData = await meRes.json();
+          accountId = meData.id || `meta-${Date.now()}`;
+          clientName = meData.name || 'Instagram Account';
+        }
+      }
     } else if (platformKey === 'youtube') {
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;

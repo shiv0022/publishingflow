@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
 
       if (post.media_url && post.media_url.startsWith('http') && post.media_type === 'image') {
         // Publish Photo to Facebook Page
-        const fbRes = await fetch(`https://graph.facebook.com/v19.0/${pageId}/photos`, {
+        const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -115,7 +115,7 @@ export async function POST(request: NextRequest) {
         externalPostId = fbData.post_id || fbData.id;
       } else {
         // Publish Feed Message
-        const fbRes = await fetch(`https://graph.facebook.com/v19.0/${pageId}/feed`, {
+        const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
 
       // Step A: Create Media Container
       const isVideo = post.media_type === 'video';
-      const containerEndpoint = `https://graph.facebook.com/v19.0/${igUserId}/media`;
+      const containerEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media`;
       const containerParams = new URLSearchParams({
         caption: messageContent,
         access_token: accessToken,
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
       await new Promise((resolve) => setTimeout(resolve, 2000));
 
       // Step B: Publish Container
-      const publishEndpoint = `https://graph.facebook.com/v19.0/${igUserId}/media_publish`;
+      const publishEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media_publish`;
       const publishRes = await fetch(`${publishEndpoint}?creation_id=${creationId}&access_token=${accessToken}`, {
         method: 'POST',
       });

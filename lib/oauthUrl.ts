@@ -27,7 +27,7 @@ export function getAppBaseUrl(request?: NextRequest): string {
     return request.nextUrl.origin;
   }
 
-  return 'https://publishingflow-r68.vercel.app';
+  return 'https://publishingflow-rc68.vercel.app';
 }
 
 /**
