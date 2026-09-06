@@ -1,0 +1,221 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { logAudit } from '@/lib/auditLogger';
+
+/**
+ * Server-Side OAuth Callback Handler
+ * 
+ * Exchanges temporary authorization code for access tokens.
+ * Saves tokens securely server-side in Supabase with auto-refresh metadata.
+ * Service role keys and secrets never reach the browser bundle.
+ */
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ platform: string }> }
+) {
+  const { platform } = await context.params;
+  const platformKey = platform.toLowerCase();
+
+  const searchParams = request.nextUrl.searchParams;
+  const code = searchParams.get('code');
+  const error = searchParams.get('error');
+
+  if (error || !code) {
+    return NextResponse.redirect(
+      new URL(`/accounts?error=oauth_denied&platform=${platformKey}`, request.url)
+    );
+  }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+  const redirectUri = `${baseUrl}/api/oauth/${platformKey}/callback`;
+
+  try {
+    let accessToken = '';
+    let refreshToken: string | null = null;
+    let expiresAt: string | null = null;
+    let accountId = '';
+    let clientName = '';
+
+    if (platformKey === 'instagram' || platformKey === 'facebook') {
+      const clientId = process.env.META_CLIENT_ID;
+      const clientSecret = process.env.META_CLIENT_SECRET;
+
+      if (!clientId || !clientSecret) {
+        return NextResponse.redirect(
+          new URL(`/accounts?error=oauth_not_configured&platform=${platformKey}`, request.url)
+        );
+      }
+
+      // 1. Exchange code for short-lived access token
+      const tokenRes = await fetch(
+        `https://graph.facebook.com/v19.0/oauth/access_token?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+          redirectUri
+        )}&client_secret=${clientSecret}&code=${code}`
+      );
+      const tokenData = await tokenRes.json();
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        throw new Error(tokenData.error?.message || 'Failed to exchange Meta access token');
+      }
+
+      accessToken = tokenData.access_token;
+
+      // 2. Exchange for 60-day long-lived access token
+      try {
+        const longLivedRes = await fetch(
+          `https://graph.facebook.com/v19.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${clientId}&client_secret=${clientSecret}&fb_exchange_token=${accessToken}`
+        );
+        const longLivedData = await longLivedRes.json();
+        if (longLivedData.access_token) {
+          accessToken = longLivedData.access_token;
+          expiresAt = new Date(Date.now() + (longLivedData.expires_in || 5184000) * 1000).toISOString();
+        }
+      } catch (e) {
+        console.warn('Long lived exchange warning:', e);
+      }
+
+      // 3. Fetch profile information
+      const meRes = await fetch(`https://graph.facebook.com/me?access_token=${accessToken}`);
+      const meData = await meRes.json();
+      accountId = meData.id || `meta-${Date.now()}`;
+      clientName = meData.name || (platformKey === 'instagram' ? 'Instagram Account' : 'Facebook Page');
+    } else if (platformKey === 'youtube') {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+      if (!clientId || !clientSecret) {
+        return NextResponse.redirect(
+          new URL(`/accounts?error=oauth_not_configured&platform=youtube`, request.url)
+        );
+      }
+
+      // Exchange code for tokens via Google OAuth token endpoint
+      const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
+
+      const tokenData = await tokenRes.json();
+      if (!tokenRes.ok || !tokenData.access_token) {
+        throw new Error(tokenData.error_description || 'Failed to exchange Google access token');
+      }
+
+      accessToken = tokenData.access_token;
+      if (tokenData.refresh_token) {
+        refreshToken = tokenData.refresh_token;
+      }
+      if (tokenData.expires_in) {
+        expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
+      }
+
+      // Fetch channel details
+      const channelRes = await fetch(
+        'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }
+      );
+      const channelData = await channelRes.json();
+      const firstChannel = channelData.items?.[0];
+      accountId = firstChannel?.id || `yt-${Date.now()}`;
+      clientName = firstChannel?.snippet?.title || 'YouTube Channel';
+    }
+
+    const supabase = createServerSupabaseClient();
+    const formattedPlatform = platformKey === 'instagram' ? 'Instagram' : platformKey === 'facebook' ? 'Facebook' : 'YouTube';
+
+    if (supabase) {
+      // 1. Normalize client into clients table
+      let clientId: string | null = null;
+      try {
+        const { data: existingClient } = await supabase
+          .from('clients')
+          .select('id')
+          .eq('name', clientName)
+          .single();
+
+        if (existingClient?.id) {
+          clientId = existingClient.id;
+        } else {
+          const { data: newClient } = await supabase
+            .from('clients')
+            .insert({ name: clientName })
+            .select('id')
+            .single();
+          clientId = newClient?.id || null;
+        }
+      } catch (err) {
+        // Table might be in transition
+      }
+
+      // 2. Check if account already exists for this client + platform
+      const { data: existingAcc } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('client_name', clientName)
+        .eq('platform', formattedPlatform)
+        .maybeSingle();
+
+      let targetAccountId = existingAcc?.id;
+
+      if (targetAccountId) {
+        await supabase
+          .from('accounts')
+          .update({
+            connection_type: 'oauth',
+            connection_status: 'Connected',
+            oauth_access_token: accessToken,
+            ...(refreshToken ? { oauth_refresh_token: refreshToken } : {}),
+            ...(expiresAt ? { oauth_token_expires_at: expiresAt } : {}),
+            oauth_account_id: accountId,
+            ...(clientId ? { client_id: clientId } : {}),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', targetAccountId);
+      } else {
+        targetAccountId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-oauth-${Date.now()}`;
+        await supabase.from('accounts').insert({
+          id: targetAccountId,
+          client_id: clientId,
+          client_name: clientName,
+          platform: formattedPlatform,
+          connection_type: 'oauth',
+          connection_status: 'Connected',
+          oauth_access_token: accessToken,
+          oauth_refresh_token: refreshToken,
+          oauth_account_id: accountId,
+          oauth_token_expires_at: expiresAt,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
+
+      // 3. Log to audit trail
+      await logAudit({
+        action: 'ACCOUNT_CONNECTED_OAUTH',
+        entityType: 'account',
+        entityId: targetAccountId,
+        clientName,
+        platform: formattedPlatform,
+        status: 'success',
+        details: { accountId, expiresAt },
+      });
+    }
+
+    return NextResponse.redirect(
+      new URL(`/accounts?connected=true&platform=${platformKey}&name=${encodeURIComponent(clientName)}`, request.url)
+    );
+  } catch (err: any) {
+    console.error('OAuth Callback Exchange Error:', err);
+    return NextResponse.redirect(
+      new URL(`/accounts?error=oauth_exchange_failed&platform=${platformKey}&message=${encodeURIComponent(err.message || '')}`, request.url)
+    );
+  }
+}
