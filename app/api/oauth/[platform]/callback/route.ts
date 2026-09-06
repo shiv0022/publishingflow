@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { logAudit } from '@/lib/auditLogger';
+import { getOAuthRedirectUri } from '@/lib/oauthUrl';
 
 /**
  * Server-Side OAuth Callback Handler
@@ -26,8 +27,7 @@ export async function GET(
     );
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
-  const redirectUri = `${baseUrl}/api/oauth/${platformKey}/callback`;
+  const redirectUri = getOAuthRedirectUri(platformKey, request);
 
   try {
     let accessToken = '';
