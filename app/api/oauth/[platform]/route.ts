@@ -3,6 +3,7 @@ import {
   getFacebookOAuthRedirectUri,
   getInstagramOAuthRedirectUri,
   getYouTubeOAuthRedirectUri,
+  getCleanMetaCredentials,
 } from '@/lib/oauthUrl';
 
 /**
@@ -20,8 +21,7 @@ export async function GET(
   const platformKey = platform.toLowerCase();
 
   if (platformKey === 'facebook') {
-    const clientId = process.env.META_CLIENT_ID;
-    const clientSecret = process.env.META_CLIENT_SECRET;
+    const { clientId, clientSecret } = getCleanMetaCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
@@ -40,8 +40,7 @@ export async function GET(
   }
 
   if (platformKey === 'instagram') {
-    const clientId = process.env.META_CLIENT_ID;
-    const clientSecret = process.env.META_CLIENT_SECRET;
+    const { clientId, clientSecret } = getCleanMetaCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(

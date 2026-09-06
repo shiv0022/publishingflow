@@ -81,3 +81,31 @@ export function getOAuthRedirectUri(platform: string, request?: NextRequest): st
   const base = getAppBaseUrl(request);
   return `${base}/api/oauth/${key}/callback`;
 }
+
+/**
+ * Resolves clean Meta credentials (App ID and Secret).
+ * 
+ * Guarantees:
+ * 1. Strips any accidental 'your-' prefix (e.g., 'your-1077484934693230' -> '1077484934693230').
+ * 2. Checks META_CLIENT_ID, META_APP_ID, and FACEBOOK_APP_ID.
+ * 3. Strips any surrounding quotes or whitespace.
+ */
+export function getCleanMetaCredentials(): { clientId?: string; clientSecret?: string } {
+  const rawId = (
+    process.env.META_CLIENT_ID ||
+    process.env.META_APP_ID ||
+    process.env.FACEBOOK_APP_ID
+  )?.trim().replace(/^["']|["']$/g, '');
+
+  const rawSecret = (
+    process.env.META_CLIENT_SECRET ||
+    process.env.META_APP_SECRET ||
+    process.env.FACEBOOK_APP_SECRET
+  )?.trim().replace(/^["']|["']$/g, '');
+
+  const clientId = rawId ? rawId.replace(/^your-/i, '') : undefined;
+  const clientSecret = rawSecret ? rawSecret.replace(/^your-/i, '') : undefined;
+
+  return { clientId, clientSecret };
+}
+

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { logAudit } from '@/lib/auditLogger';
-import { getOAuthRedirectUri } from '@/lib/oauthUrl';
+import { getOAuthRedirectUri, getCleanMetaCredentials } from '@/lib/oauthUrl';
 
 /**
  * Server-Side OAuth Callback Handler
@@ -37,8 +37,7 @@ export async function GET(
     let clientName = '';
 
     if (platformKey === 'instagram' || platformKey === 'facebook') {
-      const clientId = process.env.META_CLIENT_ID;
-      const clientSecret = process.env.META_CLIENT_SECRET;
+      const { clientId, clientSecret } = getCleanMetaCredentials();
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(

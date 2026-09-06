@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { getCleanMetaCredentials } from '@/lib/oauthUrl';
 
 /**
  * Server-side OAuth configuration check.
@@ -6,7 +7,8 @@ import { NextResponse } from 'next/server';
  * NEVER returns raw secrets or API keys to the browser.
  */
 export async function GET() {
-  const hasMeta = Boolean(process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET);
+  const metaCreds = getCleanMetaCredentials();
+  const hasMeta = Boolean(metaCreds.clientId && metaCreds.clientSecret);
   const hasGoogle = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
   return NextResponse.json({

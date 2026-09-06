@@ -1,5 +1,6 @@
 import { createServerSupabaseClient } from './supabaseServer';
 import { logAudit } from './auditLogger';
+import { getCleanMetaCredentials } from './oauthUrl';
 
 /**
  * Server-Side OAuth Token Manager with Automatic Refresh
@@ -95,8 +96,7 @@ export async function getValidAccessToken(accountId: string): Promise<{
       refreshedToken = refreshData.access_token;
       newExpiresAt = new Date(Date.now() + (refreshData.expires_in || 3600) * 1000).toISOString();
     } else if (account.platform === 'Facebook' || account.platform === 'Instagram') {
-      const clientId = process.env.META_CLIENT_ID;
-      const clientSecret = process.env.META_CLIENT_SECRET;
+      const { clientId, clientSecret } = getCleanMetaCredentials();
 
       if (!clientId || !clientSecret) {
         throw new Error('Missing Meta OAuth client credentials.');
