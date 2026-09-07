@@ -2,19 +2,29 @@ import type { NextRequest } from 'next/server';
 
 /**
  * The canonical production base URL for PublishingFlow.
+ * Guaranteed to NEVER have a trailing slash.
  */
 export const CANONICAL_APP_BASE_URL = 'https://publishingflow-rc68.vercel.app';
+
+/**
+ * Verified Facebook / Meta App ID for PublishingFlow.
+ */
+export const VERIFIED_META_APP_ID = '1077484934693230';
 
 /**
  * Returns the sanitized base URL of the application.
  * 
  * Strict sanitization guarantees:
- * 1. Only protocol + hostname is used (e.g., https://publishingflow-rc68.vercel.app).
- * 2. If NEXT_PUBLIC_APP_URL accidentally contains a callback URL (like /api/oauth/instagram/callback)
- *    or trailing slashes, they are completely stripped away.
- * 3. Never allows one provider's callback URL to be appended onto another.
+ * 1. In production, always strictly returns CANONICAL_APP_BASE_URL.
+ * 2. In development, returns localhost origin without trailing slash.
+ * 3. Never allows trailing slashes or subpaths to leak into OAuth redirects.
  */
 export function getAppBaseUrl(request?: NextRequest): string {
+  // If in production environment, always enforce canonical production URL
+  if (process.env.NODE_ENV === 'production') {
+    return CANONICAL_APP_BASE_URL;
+  }
+
   let envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/^["']|["']$/g, '');
 
   if (envUrl) {
@@ -23,18 +33,21 @@ export function getAppBaseUrl(request?: NextRequest): string {
 
     try {
       const parsed = new URL(envUrl.startsWith('http') ? envUrl : `https://${envUrl}`);
-      // parsed.origin extracts strictly "https://publishingflow-rc68.vercel.app"
+      // parsed.origin extracts strictly origin (no trailing slash)
       return parsed.origin;
     } catch {
       const match = envUrl.match(/^(https?:\/\/[^\/\s]+)/i);
       if (match) {
-        return match[1];
+        return match[1].replace(/\/+$/, '');
       }
     }
   }
 
   if (request) {
-    return request.nextUrl.origin;
+    const origin = request.nextUrl.origin.replace(/\/+$/, '');
+    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      return origin;
+    }
   }
 
   return CANONICAL_APP_BASE_URL;
@@ -42,8 +55,8 @@ export function getAppBaseUrl(request?: NextRequest): string {
 
 /**
  * Distinct, isolated callback URL for Facebook OAuth.
- * Guaranteed to NEVER concatenate with Instagram or any other callback.
- * Evaluates to: https://publishingflow-rc68.vercel.app/api/oauth/facebook/callback
+ * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/facebook/callback
+ * Guaranteed to never have a trailing slash or localhost in production.
  */
 export function getFacebookOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -52,8 +65,7 @@ export function getFacebookOAuthRedirectUri(request?: NextRequest): string {
 
 /**
  * Distinct, isolated callback URL for Instagram OAuth.
- * Guaranteed to NEVER concatenate with Facebook or any other callback.
- * Evaluates to: https://publishingflow-rc68.vercel.app/api/oauth/instagram/callback
+ * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/instagram/callback
  */
 export function getInstagramOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -62,7 +74,7 @@ export function getInstagramOAuthRedirectUri(request?: NextRequest): string {
 
 /**
  * Distinct, isolated callback URL for YouTube OAuth.
- * Evaluates to: https://publishingflow-rc68.vercel.app/api/oauth/youtube/callback
+ * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/youtube/callback
  */
 export function getYouTubeOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -86,15 +98,17 @@ export function getOAuthRedirectUri(platform: string, request?: NextRequest): st
  * Resolves clean Meta credentials (App ID and Secret).
  * 
  * Guarantees:
- * 1. Strips any accidental 'your-' prefix (e.g., 'your-1077484934693230' -> '1077484934693230').
+ * 1. Uses VERIFIED_META_APP_ID ('1077484934693230') as guaranteed fallback.
  * 2. Checks META_CLIENT_ID, META_APP_ID, and FACEBOOK_APP_ID.
- * 3. Strips any surrounding quotes or whitespace.
+ * 3. Strips any surrounding quotes, whitespace, or accidental 'your-' prefixes.
+ * 4. App Secret is strictly server-side and never leaked.
  */
-export function getCleanMetaCredentials(): { clientId?: string; clientSecret?: string } {
+export function getCleanMetaCredentials(): { clientId: string; clientSecret?: string } {
   const rawId = (
     process.env.META_CLIENT_ID ||
     process.env.META_APP_ID ||
-    process.env.FACEBOOK_APP_ID
+    process.env.FACEBOOK_APP_ID ||
+    VERIFIED_META_APP_ID
   )?.trim().replace(/^["']|["']$/g, '');
 
   const rawSecret = (
@@ -103,7 +117,8 @@ export function getCleanMetaCredentials(): { clientId?: string; clientSecret?: s
     process.env.FACEBOOK_APP_SECRET
   )?.trim().replace(/^["']|["']$/g, '');
 
-  const clientId = rawId ? rawId.replace(/^your-/i, '') : undefined;
+  const cleanId = rawId ? rawId.replace(/^your-/i, '') : '';
+  const clientId = cleanId || VERIFIED_META_APP_ID;
   const clientSecret = rawSecret ? rawSecret.replace(/^your-/i, '') : undefined;
 
   return { clientId, clientSecret };
