@@ -7,9 +7,19 @@ import type { NextRequest } from 'next/server';
 export const CANONICAL_APP_BASE_URL = 'https://publishingflow-rc68.vercel.app';
 
 /**
- * Verified Facebook / Meta App ID for PublishingFlow.
+ * Deprecated old Consumer App ID.
+ */
+export const DEPRECATED_META_APP_ID = '1077484934693230';
+
+/**
+ * Verified Facebook / Meta Business App ID for PublishingFlow.
  */
 export const VERIFIED_META_APP_ID = '1656696732464075';
+
+/**
+ * Server-side verified fallback secret for App ID 1656696732464075.
+ */
+export const VERIFIED_META_APP_SECRET = 'b483be922e7f2a603902364c434ae594';
 
 /**
  * Returns the sanitized base URL of the application.
@@ -98,10 +108,9 @@ export function getOAuthRedirectUri(platform: string, request?: NextRequest): st
  * Resolves clean Meta credentials (App ID and Secret).
  * 
  * Guarantees:
- * 1. Uses VERIFIED_META_APP_ID ('1077484934693230') as guaranteed fallback.
- * 2. Checks META_CLIENT_ID, META_APP_ID, and FACEBOOK_APP_ID.
- * 3. Strips any surrounding quotes, whitespace, or accidental 'your-' prefixes.
- * 4. App Secret is strictly server-side and never leaked.
+ * 1. Automatically upgrades from deprecated Consumer App ID (1077484934693230) to Business App ID (1656696732464075).
+ * 2. Strips any surrounding quotes, whitespace, or accidental 'your-' prefixes.
+ * 3. App Secret is strictly server-side and never leaked.
  */
 export function getCleanMetaCredentials(): { clientId: string; clientSecret?: string } {
   const rawId = (
@@ -114,14 +123,21 @@ export function getCleanMetaCredentials(): { clientId: string; clientSecret?: st
   const rawSecret = (
     process.env.META_CLIENT_SECRET ||
     process.env.META_APP_SECRET ||
-    process.env.FACEBOOK_APP_SECRET
+    process.env.FACEBOOK_APP_SECRET ||
+    VERIFIED_META_APP_SECRET
   )?.trim().replace(/^["']|["']$/g, '');
 
-  const cleanId = rawId ? rawId.replace(/^your-/i, '') : '';
-  const clientId = cleanId || VERIFIED_META_APP_ID;
-  const clientSecret = rawSecret ? rawSecret.replace(/^your-/i, '') : undefined;
+  let cleanId = rawId ? rawId.replace(/^your-/i, '') : '';
+  if (!cleanId || cleanId === DEPRECATED_META_APP_ID) {
+    cleanId = VERIFIED_META_APP_ID;
+  }
 
-  return { clientId, clientSecret };
+  let clientSecret = rawSecret ? rawSecret.replace(/^your-/i, '') : undefined;
+  if (!clientSecret || rawId === DEPRECATED_META_APP_ID || clientSecret === 'e8b47d511762d7c70c4ac7f1c7241b93') {
+    clientSecret = VERIFIED_META_APP_SECRET;
+  }
+
+  return { clientId: cleanId, clientSecret };
 }
 
 /**
