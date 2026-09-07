@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { AppProvider } from '@/context/AppContext';
 import { Navbar } from '@/components/Navbar';
+import { Footer } from '@/components/Footer';
 
 export const metadata: Metadata = {
   title: 'PublishingFlow - Simple Social Media Posting',
@@ -20,6 +21,7 @@ export default function RootLayout({
           <div className="app-shell">
             <Navbar />
             <main>{children}</main>
+            <Footer />
           </div>
         </AppProvider>
       </body>
