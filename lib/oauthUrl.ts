@@ -124,3 +124,41 @@ export function getCleanMetaCredentials(): { clientId: string; clientSecret?: st
   return { clientId, clientSecret };
 }
 
+/**
+ * Verified permissions for Facebook Page connection and content publishing:
+ * - pages_show_list: Required to list Facebook Pages at /me/accounts
+ * - pages_manage_posts: Required to publish posts and photos to Pages at /{page-id}/feed and /{page-id}/photos
+ * - public_profile: Basic profile verification
+ * 
+ * Note: pages_read_engagement is removed as PublishingFlow only connects Pages and publishes posts.
+ */
+export const DEFAULT_FACEBOOK_SCOPES = 'public_profile,pages_show_list,pages_manage_posts';
+
+/**
+ * Returns clean Facebook OAuth scopes, allowing override via META_FACEBOOK_SCOPES.
+ */
+export function getFacebookScopes(): string {
+  const envScopes = process.env.META_FACEBOOK_SCOPES?.trim().replace(/^["']|["']$/g, '');
+  return envScopes || DEFAULT_FACEBOOK_SCOPES;
+}
+
+/**
+ * Builds the official Meta Facebook OAuth authorization dialog URL.
+ * Supports both standard scope-based OAuth and Facebook Login for Business (config_id).
+ */
+export function buildFacebookOAuthUrl(clientId: string, redirectUri: string): string {
+  const configId = (process.env.META_CONFIG_ID || process.env.FACEBOOK_CONFIG_ID)?.trim().replace(/^["']|["']$/g, '');
+
+  if (configId) {
+    return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&config_id=${encodeURIComponent(configId)}&response_type=code`;
+  }
+
+  const scopes = getFacebookScopes();
+  return `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+    redirectUri
+  )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
+}
+
+

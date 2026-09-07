@@ -4,6 +4,7 @@ import {
   getInstagramOAuthRedirectUri,
   getYouTubeOAuthRedirectUri,
   getCleanMetaCredentials,
+  buildFacebookOAuthUrl,
 } from '@/lib/oauthUrl';
 
 /**
@@ -30,11 +31,7 @@ export async function GET(
     }
 
     const redirectUri = getFacebookOAuthRedirectUri(request);
-    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts';
-
-    const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
-      redirectUri
-    )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
+    const authUrl = buildFacebookOAuthUrl(clientId, redirectUri);
 
     return NextResponse.redirect(authUrl);
   }

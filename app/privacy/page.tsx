@@ -115,7 +115,7 @@ export default function PrivacyPolicyPage() {
             <div style={{ background: '#f8fafc', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid #2563eb' }}>
               <strong style={{ display: 'block', color: '#0f172a', marginBottom: '0.25rem' }}>A. Meta Platform Data (Facebook &amp; Instagram)</strong>
               <p style={{ margin: 0, fontSize: '0.9rem', color: '#334155' }}>
-                When you authenticate via Facebook OAuth, we receive authorized metadata including your User ID, Page IDs, Page Names, connected Instagram Business Account IDs, and Page Access Tokens. We request only the granted permissions (such as <code>pages_manage_posts</code>, <code>pages_read_engagement</code>, <code>pages_show_list</code>, and <code>instagram_content_publish</code>) necessary to publish content on your behalf.
+                When you authenticate via Facebook OAuth, we receive authorized metadata including your User ID, Page IDs, Page Names, connected Instagram Business Account IDs, and Page Access Tokens. We request only the granted permissions (such as <code>pages_show_list</code>, <code>pages_manage_posts</code>, and <code>instagram_content_publish</code>) necessary to publish content on your behalf.
               </p>
             </div>
 
