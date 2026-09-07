@@ -9,7 +9,7 @@ export const CANONICAL_APP_BASE_URL = 'https://publishingflow-rc68.vercel.app';
 /**
  * Verified Facebook / Meta App ID for PublishingFlow.
  */
-export const VERIFIED_META_APP_ID = '1077484934693230';
+export const VERIFIED_META_APP_ID = '1656696732464075';
 
 /**
  * Returns the sanitized base URL of the application.
