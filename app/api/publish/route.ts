@@ -97,22 +97,40 @@ export async function POST(request: NextRequest) {
     if (account.platform === 'Facebook') {
       const pageId = oauthAccountId || 'me';
 
-      if (post.media_url && post.media_url.startsWith('http') && post.media_type === 'image') {
-        // Publish Photo to Facebook Page
-        const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            url: post.media_url,
-            caption: messageContent,
-            access_token: accessToken,
-          }),
-        });
-        const fbData = await fbRes.json();
-        if (!fbRes.ok || fbData.error) {
-          throw new Error(fbData.error?.message || 'Meta Facebook Photo publish failed');
+      if (post.media_url && post.media_url.startsWith('http')) {
+        if (post.media_type === 'video') {
+          // Publish Video to Facebook Page
+          const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/videos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_url: post.media_url,
+              description: messageContent,
+              access_token: accessToken,
+            }),
+          });
+          const fbData = await fbRes.json();
+          if (!fbRes.ok || fbData.error) {
+            throw new Error(fbData.error?.message || 'Meta Facebook Video publish failed');
+          }
+          externalPostId = fbData.id;
+        } else {
+          // Publish Photo to Facebook Page
+          const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: post.media_url,
+              caption: messageContent,
+              access_token: accessToken,
+            }),
+          });
+          const fbData = await fbRes.json();
+          if (!fbRes.ok || fbData.error) {
+            throw new Error(fbData.error?.message || 'Meta Facebook Photo publish failed');
+          }
+          externalPostId = fbData.post_id || fbData.id;
         }
-        externalPostId = fbData.post_id || fbData.id;
       } else {
         // Publish Feed Message
         const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
@@ -142,7 +160,7 @@ export async function POST(request: NextRequest) {
       const containerParams = new URLSearchParams({
         caption: messageContent,
         access_token: accessToken,
-        ...(isVideo ? { video_url: post.media_url, media_type: 'VIDEO' } : { image_url: post.media_url }),
+        ...(isVideo ? { video_url: post.media_url, media_type: 'REELS' } : { image_url: post.media_url }),
       });
 
       const containerRes = await fetch(`${containerEndpoint}?${containerParams.toString()}`, {
@@ -155,8 +173,23 @@ export async function POST(request: NextRequest) {
 
       const creationId = containerData.id;
 
-      // Wait a moment for container to initialize
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      // Poll container status until ready (especially for Reels/Video)
+      if (isVideo) {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const statusRes = await fetch(
+            `https://graph.facebook.com/v22.0/${creationId}?fields=status_code&access_token=${accessToken}`
+          );
+          const statusData = await statusRes.json();
+          if (statusData.status_code === 'FINISHED') {
+            break;
+          } else if (statusData.status_code === 'ERROR') {
+            throw new Error('Instagram Reel video processing failed on Meta servers.');
+          }
+        }
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
 
       // Step B: Publish Container
       const publishEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media_publish`;

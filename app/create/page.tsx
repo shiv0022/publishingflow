@@ -36,6 +36,8 @@ export default function CreatePostPage() {
   // Media upload state
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string>('');
+  const [uploadedUrl, setUploadedUrl] = useState<string>('');
+  const [isUploading, setIsUploading] = useState(false);
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -74,7 +76,7 @@ export default function CreatePostPage() {
     setScheduledAt(localISOTime);
   }, []);
 
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -82,16 +84,28 @@ export default function CreatePostPage() {
     const isVid = file.type.startsWith('video');
     setMediaType(isVid ? 'video' : 'image');
 
-    // For images under 3MB, read as Data URL so preview persists in localStorage
-    if (!isVid && file.size < 3 * 1024 * 1024) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setMediaPreview(event.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    } else {
-      const objectUrl = URL.createObjectURL(file);
-      setMediaPreview(objectUrl);
+    const previewUrl = URL.createObjectURL(file);
+    setMediaPreview(previewUrl);
+
+    // Automatically upload to Supabase storage to generate public HTTPS URL
+    setIsUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+      if (data.url) {
+        setUploadedUrl(data.url);
+      } else {
+        console.warn('Upload error from server:', data.error);
+      }
+    } catch (uploadErr) {
+      console.error('Failed to upload file to storage:', uploadErr);
+    } finally {
+      setIsUploading(false);
     }
   };
 
@@ -101,12 +115,13 @@ export default function CreatePostPage() {
       URL.revokeObjectURL(mediaPreview);
     }
     setMediaPreview('');
+    setUploadedUrl('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const finalClientName = selectedClient === '__custom__' 
@@ -128,19 +143,42 @@ export default function CreatePostPage() {
       return;
     }
 
+    let finalMediaUrl = uploadedUrl;
+
+    // If file is selected but upload not completed yet, perform upload now
+    if (mediaFile && !finalMediaUrl) {
+      setIsUploading(true);
+      try {
+        const fd = new FormData();
+        fd.append('file', mediaFile);
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          body: fd,
+        });
+        const data = await res.json();
+        if (data.url) {
+          finalMediaUrl = data.url;
+        }
+      } catch (err) {
+        console.error('Final upload fallback failed:', err);
+      } finally {
+        setIsUploading(false);
+      }
+    }
+
     // Determine status: "now" saves as "draft", "schedule" saves as "scheduled"
     const isScheduled = timingMode === 'schedule';
     const status = isScheduled ? 'scheduled' : 'draft';
 
-    addPost({
+    await addPost({
       clientName: finalClientName,
       platform,
       title: title.trim(),
       caption: caption.trim(),
       description: description.trim(),
-      mediaUrl: mediaPreview || undefined,
-      mediaType: mediaPreview ? mediaType : undefined,
-      mediaName: mediaFile?.name || (mediaPreview ? 'attached-media' : undefined),
+      mediaUrl: finalMediaUrl || (mediaPreview.startsWith('http') ? mediaPreview : undefined),
+      mediaType: finalMediaUrl || mediaPreview ? mediaType : undefined,
+      mediaName: mediaFile?.name || (finalMediaUrl ? 'attached-media' : undefined),
       isScheduled,
       scheduledAt: isScheduled ? scheduledAt : undefined,
       status,
