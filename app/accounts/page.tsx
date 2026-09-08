@@ -1,413 +1,295 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { PlatformBadge } from '@/components/PlatformBadge';
 import { Platform, ConnectionStatus, ConnectionType } from '@/types';
-import { 
-  Plus, 
-  Trash2, 
-  ShieldCheck, 
-  RefreshCw, 
-  Link2, 
-  AlertCircle, 
-  CheckCircle, 
-  ExternalLink,
-  KeyRound,
-  X
+import {
+  Plus, Trash2, ShieldCheck, RefreshCw, Link2,
+  AlertCircle, CheckCircle, ExternalLink, KeyRound, X, Check
 } from 'lucide-react';
+import { InstagramIcon, FacebookIcon, YouTubeIcon } from '@/components/PlatformIcons';
 
-const PLATFORMS: Platform[] = ['Instagram', 'Facebook', 'YouTube'];
-const STATUS_OPTIONS: ConnectionStatus[] = ['Connected', 'Disconnected', 'Pending'];
+const ALL_PLATFORMS: { id: Platform; label: string; icon: React.ReactNode; color: string }[] = [
+  { id: 'Instagram', label: 'Instagram', icon: <InstagramIcon size={15} />, color: 'Instagram' },
+  { id: 'Facebook', label: 'Facebook', icon: <FacebookIcon size={15} />, color: 'Facebook' },
+  { id: 'YouTube', label: 'YouTube', icon: <YouTubeIcon size={15} />, color: 'YouTube' },
+];
+
 const CONNECTION_TYPES: { type: ConnectionType; label: string; desc: string }[] = [
-  { type: 'manual', label: 'Manual Mode', desc: 'No APIs needed. Copy caption, download media, mark posted manually.' },
-  { type: 'mock', label: 'Mock Mode', desc: 'Simulated API connection for testing workflows without real credentials.' },
-  { type: 'oauth', label: 'OAuth Mode', desc: 'Real OAuth login with Meta / Google. Requires API keys in .env.local.' },
+  { type: 'manual', label: 'Manual', desc: 'Copy caption, download media, mark posted manually.' },
+  { type: 'mock', label: 'Mock / Test', desc: 'Simulated API connection for testing workflows.' },
+  { type: 'oauth', label: 'Meta / Google', desc: 'Real OAuth login with Meta or Google. Requires API keys.' },
 ];
 
 function AccountsContent() {
   const searchParams = useSearchParams();
   const { accounts, addAccount, updateAccount, deleteAccount } = useApp();
 
-  // OAuth server configuration status
-  const [oauthStatus, setOauthStatus] = useState<{
-    instagram: boolean;
-    facebook: boolean;
-    youtube: boolean;
-  }>({ instagram: false, facebook: false, youtube: false });
-
-  // Banner notification states
+  const [oauthStatus, setOauthStatus] = useState<{ instagram: boolean; facebook: boolean; youtube: boolean }>({ instagram: false, facebook: false, youtube: false });
   const [bannerMessage, setBannerMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
-  // New account form state
   const [showAddForm, setShowAddForm] = useState(false);
+
+  // Add form state
   const [clientName, setClientName] = useState('');
-  const [platform, setPlatform] = useState<Platform>('Instagram');
-  const [connectionType, setConnectionType] = useState<ConnectionType>('manual');
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<Platform>>(new Set(['Instagram']));
+  const [connectionType, setConnectionType] = useState<ConnectionType>('oauth');
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('Connected');
 
-  // Fetch safe OAuth configuration from server
   useEffect(() => {
     fetch('/api/oauth/status')
       .then((res) => res.json())
-      .then((data) => {
-        if (data?.configured) {
-          setOauthStatus(data.configured);
-        }
-      })
-      .catch((e) => console.warn('Could not check OAuth status:', e));
+      .then((data) => { if (data?.configured) setOauthStatus(data.configured); })
+      .catch(() => {});
   }, []);
 
-  // Handle URL query banners
   useEffect(() => {
     const errorParam = searchParams.get('error');
     const connectedParam = searchParams.get('connected');
     const platformParam = searchParams.get('platform');
-
     if (errorParam === 'oauth_not_configured') {
-      setBannerMessage({
-        type: 'error',
-        text: `OAuth is not configured for ${platformParam || 'this platform'}. Please add credentials in .env.local to enable real OAuth.`,
-      });
+      setBannerMessage({ type: 'error', text: `OAuth not configured for ${platformParam || 'this platform'}.` });
     } else if (connectedParam === 'true') {
-      setBannerMessage({
-        type: 'success',
-        text: `Successfully connected ${platformParam || 'account'} via OAuth!`,
-      });
+      setBannerMessage({ type: 'success', text: `Successfully connected ${platformParam || 'account'} via Meta OAuth!` });
     }
   }, [searchParams]);
 
+  const togglePlatform = (p: Platform) => {
+    setSelectedPlatforms(prev => {
+      const n = new Set(prev);
+      if (n.has(p)) { if (n.size > 1) n.delete(p); }
+      else n.add(p);
+      return n;
+    });
+  };
+
   const handleAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!clientName.trim()) {
-      alert('Please enter a client name');
-      return;
-    }
-
-    // Default status for oauth is Pending until authenticated
+    if (!clientName.trim()) { alert('Please enter a client name'); return; }
     const initialStatus = connectionType === 'oauth' ? 'Pending' : connectionStatus;
-
-    await addAccount({
-      clientName: clientName.trim(),
-      platform,
-      connectionType,
-      connectionStatus: initialStatus,
-    });
-
+    for (const p of Array.from(selectedPlatforms)) {
+      await addAccount({ clientName: clientName.trim(), platform: p, connectionType, connectionStatus: initialStatus });
+    }
     setClientName('');
+    setSelectedPlatforms(new Set(['Instagram']));
     setShowAddForm(false);
   };
 
   const cycleStatus = async (id: string, current: ConnectionStatus) => {
-    const nextMap: Record<ConnectionStatus, ConnectionStatus> = {
-      Connected: 'Disconnected',
-      Disconnected: 'Pending',
-      Pending: 'Connected',
-    };
-    await updateAccount(id, { connectionStatus: nextMap[current] });
+    const map: Record<ConnectionStatus, ConnectionStatus> = { Connected: 'Disconnected', Disconnected: 'Pending', Pending: 'Connected' };
+    await updateAccount(id, { connectionStatus: map[current] });
   };
 
-  const toggleMockConnection = async (id: string, current: ConnectionStatus) => {
-    const newStatus: ConnectionStatus = current === 'Connected' ? 'Disconnected' : 'Connected';
-    await updateAccount(id, { connectionStatus: newStatus });
-  };
+  const isPlatformOAuthConfigured = (p: Platform) => Boolean(oauthStatus[p.toLowerCase() as keyof typeof oauthStatus]);
 
-  const isPlatformOAuthConfigured = (p: Platform) => {
-    const key = p.toLowerCase() as keyof typeof oauthStatus;
-    return Boolean(oauthStatus[key]);
-  };
+  // Group accounts by clientName
+  const clientGroups = accounts.reduce<Record<string, typeof accounts>>((acc, a) => {
+    if (!acc[a.clientName]) acc[a.clientName] = [];
+    acc[a.clientName].push(a);
+    return acc;
+  }, {});
 
   return (
     <div className="main-content">
       <div className="page-header">
         <div>
           <h1 className="page-title">Accounts</h1>
-          <p className="page-subtitle">
-            Manage your client social media accounts with Manual, Mock, or OAuth connections.
-          </p>
+          <p className="page-subtitle">Manage client social media accounts and platform connections.</p>
         </div>
-
-        <button
-          onClick={() => setShowAddForm(!showAddForm)}
-          className="btn btn-primary"
-        >
+        <button onClick={() => setShowAddForm(!showAddForm)} className="btn btn-primary">
           <Plus size={16} />
           <span>{showAddForm ? 'Cancel' : 'Add Account'}</span>
         </button>
       </div>
 
-      {/* Banner Message */}
+      {/* Banner */}
       {bannerMessage && (
-        <div
-          style={{
-            background: bannerMessage.type === 'error' ? 'var(--danger-light)' : 'var(--success-light)',
-            border: `1px solid ${bannerMessage.type === 'error' ? '#fecaca' : '#a7f3d0'}`,
-            color: bannerMessage.type === 'error' ? '#991b1b' : '#065f46',
-            borderRadius: 'var(--radius)',
-            padding: '0.75rem 1rem',
-            marginBottom: '1.5rem',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            fontSize: '0.875rem',
-          }}
-        >
+        <div style={{
+          background: bannerMessage.type === 'error' ? 'var(--danger-light)' : 'var(--success-light)',
+          border: `1px solid ${bannerMessage.type === 'error' ? 'rgba(248,113,113,0.3)' : 'rgba(52,211,153,0.3)'}`,
+          color: bannerMessage.type === 'error' ? 'var(--danger)' : 'var(--success)',
+          borderRadius: 'var(--radius)',
+          padding: '0.75rem 1rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          fontSize: '0.875rem',
+        }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
             {bannerMessage.type === 'error' ? <AlertCircle size={18} /> : <CheckCircle size={18} />}
             <span>{bannerMessage.text}</span>
           </div>
-          <button
-            onClick={() => setBannerMessage(null)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}
-          >
+          <button onClick={() => setBannerMessage(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit' }}>
             <X size={16} />
           </button>
         </div>
       )}
 
-      {/* Add Account Card */}
+      {/* Add Account Form */}
       {showAddForm && (
-        <div className="card" style={{ marginBottom: '1.75rem', borderColor: '#bfdbfe' }}>
-          <h2 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '1rem' }}>
-            Add New Account
+        <div className="card" style={{ marginBottom: '1.75rem', borderColor: 'rgba(99,102,241,0.3)' }}>
+          <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem', color: 'var(--text-main)' }}>
+            Add New Client Account
           </h2>
           <form onSubmit={handleAddSubmit}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
               <div className="form-group">
                 <label className="form-label">Client Name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Apex Fitness Studio"
-                  className="form-input"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  autoFocus
-                  required
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Platform</label>
-                <select
-                  className="form-select"
-                  value={platform}
-                  onChange={(e) => setPlatform(e.target.value as Platform)}
-                >
-                  {PLATFORMS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                <input type="text" placeholder="e.g. Rachit Chauhan" className="form-input" value={clientName}
+                  onChange={(e) => setClientName(e.target.value)} autoFocus required />
               </div>
 
               <div className="form-group">
                 <label className="form-label">Connection Type</label>
-                <select
-                  className="form-select"
-                  value={connectionType}
-                  onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
-                >
+                <select className="form-select" value={connectionType} onChange={(e) => setConnectionType(e.target.value as ConnectionType)}>
                   {CONNECTION_TYPES.map((ct) => (
-                    <option key={ct.type} value={ct.type}>
-                      {ct.label}
-                    </option>
+                    <option key={ct.type} value={ct.type}>{ct.label}</option>
                   ))}
                 </select>
-                <p className="form-helper">
-                  {CONNECTION_TYPES.find((c) => c.type === connectionType)?.desc}
-                </p>
+                <p className="form-helper">{CONNECTION_TYPES.find((c) => c.type === connectionType)?.desc}</p>
               </div>
 
               {connectionType !== 'oauth' && (
                 <div className="form-group">
-                  <label className="form-label">Connection Status (Manual)</label>
-                  <select
-                    className="form-select"
-                    value={connectionStatus}
-                    onChange={(e) => setConnectionStatus(e.target.value as ConnectionStatus)}
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
+                  <label className="form-label">Initial Status</label>
+                  <select className="form-select" value={connectionStatus} onChange={(e) => setConnectionStatus(e.target.value as ConnectionStatus)}>
+                    {(['Connected', 'Disconnected', 'Pending'] as ConnectionStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
               )}
             </div>
 
-            {/* OAuth Status Warning in Form */}
+            {/* Platform Selection */}
+            <div className="form-group">
+              <label className="form-label">Select Platforms</label>
+              <div className="platform-checkbox-grid">
+                {ALL_PLATFORMS.map(p => {
+                  const configured = isPlatformOAuthConfigured(p.id);
+                  const isChecked = selectedPlatforms.has(p.id);
+                  return (
+                    <label key={p.id} className={`platform-checkbox-item ${isChecked ? `checked-${p.id}` : ''} ${connectionType === 'oauth' && !configured ? 'disabled' : ''}`}
+                      onClick={() => connectionType !== 'oauth' || configured ? togglePlatform(p.id) : undefined}
+                      style={{ cursor: connectionType === 'oauth' && !configured ? 'not-allowed' : 'pointer' }}>
+                      <input type="checkbox" checked={isChecked} readOnly />
+                      {p.icon}
+                      <span>{p.label}</span>
+                      {isChecked && <Check size={13} style={{ marginLeft: 'auto' }} />}
+                      {connectionType === 'oauth' && !configured && (
+                        <span style={{ fontSize: '0.65rem', color: 'var(--danger)', marginLeft: '4px' }}>No key</span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+              <p className="form-helper">One account row is created per selected platform.</p>
+            </div>
+
             {connectionType === 'oauth' && (
-              <div 
-                style={{ 
-                  background: isPlatformOAuthConfigured(platform) ? '#eff6ff' : '#fef2f2',
-                  border: `1px solid ${isPlatformOAuthConfigured(platform) ? '#bfdbfe' : '#fecaca'}`,
-                  borderRadius: 'var(--radius)',
-                  padding: '0.75rem',
-                  marginBottom: '1rem',
-                  fontSize: '0.85rem'
-                }}
-              >
-                {isPlatformOAuthConfigured(platform) ? (
-                  <div style={{ color: '#1e40af', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <KeyRound size={16} />
-                    <span>OAuth keys detected in server environment. Ready to link upon saving.</span>
-                  </div>
-                ) : (
-                  <div style={{ color: '#991b1b', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    <AlertCircle size={16} />
-                    <span>
-                      <strong>OAuth Not Configured:</strong> Missing client ID & secret in server environment. 
-                      You can still save this account; it will show &quot;Not Configured&quot; until keys are set in <code>.env.local</code>.
-                    </span>
-                  </div>
-                )}
+              <div style={{
+                background: 'rgba(99,102,241,0.08)',
+                border: '1px solid rgba(99,102,241,0.25)',
+                borderRadius: 'var(--radius)',
+                padding: '0.75rem',
+                marginBottom: '1rem',
+                fontSize: '0.85rem',
+                color: 'var(--text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}>
+                <KeyRound size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                <span>After saving, click <strong style={{ color: 'var(--text-main)' }}>Connect</strong> next to each platform to authorize via Meta / Google OAuth.</span>
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
               <button type="submit" className="btn btn-primary">
-                Save Account
+                <Check size={15} /> Save Account{selectedPlatforms.size > 1 ? `s (${selectedPlatforms.size})` : ''}
               </button>
-              <button
-                type="button"
-                onClick={() => setShowAddForm(false)}
-                className="btn btn-secondary"
-              >
-                Cancel
-              </button>
+              <button type="button" onClick={() => setShowAddForm(false)} className="btn btn-secondary">Cancel</button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Accounts Table */}
-      {accounts.length === 0 ? (
+      {/* Accounts List — Grouped by Client */}
+      {Object.keys(clientGroups).length === 0 ? (
         <div className="empty-state">
-          <div className="empty-icon">
-            <ShieldCheck size={40} />
-          </div>
+          <div className="empty-icon"><ShieldCheck size={32} /></div>
           <h3 className="empty-title">No accounts added yet</h3>
-          <p className="empty-desc">
-            Add your first client account above to start creating and scheduling posts.
-          </p>
+          <p className="empty-desc">Add your first client account to start creating and scheduling posts across platforms.</p>
           <button onClick={() => setShowAddForm(true)} className="btn btn-primary">
             <Plus size={15} /> Add First Account
           </button>
         </div>
       ) : (
-        <div className="table-container">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Client Name</th>
-                <th>Platform</th>
-                <th>Connection Type</th>
-                <th>Connection Status</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((acc) => {
+        <div>
+          {Object.entries(clientGroups).map(([name, accs]) => (
+            <div key={name} className="client-group">
+              <div className="client-group-header">
+                <span className="client-group-name">{name}</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>
+                  {accs.length} platform{accs.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              {accs.map((acc) => {
                 const oauthConfigured = isPlatformOAuthConfigured(acc.platform);
-
                 return (
-                  <tr key={acc.id}>
-                    <td style={{ fontWeight: 600 }}>{acc.clientName}</td>
-                    <td>
+                  <div key={acc.id} className="platform-row">
+                    {/* Platform */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', minWidth: '130px' }}>
                       <PlatformBadge platform={acc.platform} />
-                    </td>
-                    <td>
-                      <span className={`type-badge ${acc.connectionType}`}>
-                        {acc.connectionType}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                        {acc.connectionType === 'oauth' && !oauthConfigured ? (
-                          <span className="badge-not-configured" title="Missing API credentials in .env.local">
-                            <AlertCircle size={11} />
-                            <span>Not Configured</span>
-                          </span>
-                        ) : (
-                          <span
-                            className={`conn-badge ${acc.connectionStatus}`}
-                            onClick={() => {
-                              if (acc.connectionType === 'manual') {
-                                cycleStatus(acc.id, acc.connectionStatus);
-                              } else if (acc.connectionType === 'mock') {
-                                toggleMockConnection(acc.id, acc.connectionStatus);
-                              }
-                            }}
-                            title={acc.connectionType === 'manual' ? 'Click to cycle status' : 'Connection status'}
-                          >
-                            {acc.connectionStatus === 'Connected' && '●'}
-                            {acc.connectionStatus === 'Disconnected' && '○'}
-                            {acc.connectionStatus === 'Pending' && '◐'}
-                            {' '}{acc.connectionStatus}
-                          </span>
-                        )}
+                    </div>
 
-                        {/* Interactive toggle for manual & mock */}
-                        {acc.connectionType === 'manual' && (
-                          <button
-                            onClick={() => cycleStatus(acc.id, acc.connectionStatus)}
-                            className="btn-secondary"
-                            style={{ padding: '0.2rem 0.45rem', fontSize: '0.7rem', borderRadius: '4px', cursor: 'pointer' }}
-                            title="Cycle manual status"
-                          >
-                            <RefreshCw size={11} />
-                          </button>
-                        )}
+                    {/* Type Badge */}
+                    <span className={`type-badge ${acc.connectionType === 'oauth' ? 'meta' : acc.connectionType}`}>
+                      {acc.connectionType === 'oauth' ? 'Meta' : acc.connectionType}
+                    </span>
 
-                        {acc.connectionType === 'mock' && (
-                          <button
-                            onClick={() => toggleMockConnection(acc.id, acc.connectionStatus)}
-                            className="btn-secondary"
-                            style={{ padding: '0.2rem 0.45rem', fontSize: '0.7rem', borderRadius: '4px', cursor: 'pointer' }}
-                            title="Toggle mock connection"
-                          >
-                            {acc.connectionStatus === 'Connected' ? 'Disconnect' : 'Connect'}
-                          </button>
-                        )}
+                    {/* Status */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {acc.connectionType === 'oauth' && !oauthConfigured ? (
+                        <span className="badge-not-configured">
+                          <AlertCircle size={11} /><span>Not Configured</span>
+                        </span>
+                      ) : (
+                        <span
+                          className={`conn-badge ${acc.connectionStatus}`}
+                          onClick={() => { if (acc.connectionType === 'manual') cycleStatus(acc.id, acc.connectionStatus); }}
+                          title={acc.connectionType === 'manual' ? 'Click to cycle status' : 'Connection status'}
+                        >
+                          {acc.connectionStatus === 'Connected' && '●'}
+                          {acc.connectionStatus === 'Disconnected' && '○'}
+                          {acc.connectionStatus === 'Pending' && '◐'}
+                          {' '}{acc.connectionStatus}
+                        </span>
+                      )}
 
-                        {/* OAuth Action Link */}
-                        {acc.connectionType === 'oauth' && (
-                          oauthConfigured ? (
-                            <a
-                              href={`/api/oauth/${acc.platform.toLowerCase()}?accountId=${encodeURIComponent(acc.id)}`}
-                              className="btn btn-secondary"
-                              style={{ padding: '0.25rem 0.55rem', fontSize: '0.72rem' }}
-                              title="Authenticate with OAuth"
-                            >
-                              <Link2 size={11} />
-                              <span>{acc.connectionStatus === 'Connected' ? 'Re-link' : 'Connect'}</span>
-                            </a>
-                          ) : (
-                            <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)' }}>
-                              (Add keys in .env)
-                            </span>
-                          )
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ textAlign: 'right' }}>
-                      <button
-                        onClick={() => deleteAccount(acc.id)}
-                        className="btn-danger-outline"
-                        title="One-click delete account"
-                      >
-                        <Trash2 size={13} />
-                        <span>Delete</span>
-                      </button>
-                    </td>
-                  </tr>
+                      {/* OAuth Connect Button */}
+                      {acc.connectionType === 'oauth' && oauthConfigured && (
+                        <a
+                          href={`/api/oauth/${acc.platform.toLowerCase()}?accountId=${encodeURIComponent(acc.id)}`}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.25rem 0.65rem', fontSize: '0.75rem', gap: '0.35rem' }}
+                        >
+                          <Link2 size={12} />
+                          <span>{acc.connectionStatus === 'Connected' ? 'Re-link' : 'Connect'}</span>
+                        </a>
+                      )}
+                    </div>
+
+                    {/* Delete */}
+                    <button onClick={() => deleteAccount(acc.id)} className="btn-danger-outline" title="Delete account"
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <Trash2 size={13} /><span>Delete</span>
+                    </button>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -416,7 +298,7 @@ function AccountsContent() {
 
 export default function AccountsPage() {
   return (
-    <Suspense fallback={<div className="main-content"><p>Loading accounts...</p></div>}>
+    <Suspense fallback={<div className="main-content"><p style={{ color: 'var(--text-muted)' }}>Loading accounts...</p></div>}>
       <AccountsContent />
     </Suspense>
   );

@@ -1,109 +1,124 @@
-'use client';
+﻿'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { Platform } from '@/types';
 import { InstagramIcon, FacebookIcon, YouTubeIcon } from '@/components/PlatformIcons';
-import { 
-  UploadCloud, 
-  X, 
-  Send, 
-  Calendar,
-  FileImage,
-  Film,
-  Sparkles
+import {
+  UploadCloud, X, Send, Calendar, FileImage, Film,
+  Plus, Trash2, Link, Check, Clock
 } from 'lucide-react';
 
-const PLATFORMS: { id: Platform; label: string; icon: React.ReactNode }[] = [
-  { id: 'Instagram', label: 'Instagram', icon: <InstagramIcon size={18} /> },
-  { id: 'Facebook', label: 'Facebook', icon: <FacebookIcon size={18} /> },
-  { id: 'YouTube', label: 'YouTube', icon: <YouTubeIcon size={18} /> },
-];
+interface SelectedAccount {
+  accountId: string;
+  clientName: string;
+  platform: Platform;
+}
+
+function extractDriveId(url: string): string | null {
+  const patterns = [
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/,
+    /docs\.google\.com\/.*\/d\/([a-zA-Z0-9_-]+)/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function getDriveDirectUrl(fileId: string): string {
+  return `https://drive.google.com/uc?export=download&id=${fileId}`;
+}
+
+const PLATFORM_ICONS: Record<Platform, React.ReactNode> = {
+  Instagram: <InstagramIcon size={14} />,
+  Facebook: <FacebookIcon size={14} />,
+  YouTube: <YouTubeIcon size={14} />,
+};
 
 export default function CreatePostPage() {
   const router = useRouter();
   const { accounts, addPost } = useApp();
 
-  // Form states
-  const [selectedClient, setSelectedClient] = useState('');
-  const [customClientName, setCustomClientName] = useState('');
-  const [platform, setPlatform] = useState<Platform>('Instagram');
-  const [title, setTitle] = useState('');
-  const [caption, setCaption] = useState('');
-  const [description, setDescription] = useState('');
-  
-  // Media upload state
+  // Multi-account selection: Set of account IDs
+  const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
+
+  // Media state
+  const [mediaTab, setMediaTab] = useState<'upload' | 'url' | 'drive'>('upload');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string>('');
   const [uploadedUrl, setUploadedUrl] = useState<string>('');
   const [isUploading, setIsUploading] = useState(false);
   const [mediaType, setMediaType] = useState<'image' | 'video'>('image');
+  const [urlInput, setUrlInput] = useState('');
+  const [driveInput, setDriveInput] = useState('');
+  const [driveResolved, setDriveResolved] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Timing mode: "now" -> draft | "schedule" -> scheduled
-  const [timingMode, setTimingMode] = useState<'now' | 'schedule'>('now');
-  const [scheduledAt, setScheduledAt] = useState('');
+  // Post content
+  const [title, setTitle] = useState('');
+  const [caption, setCaption] = useState('');
+  const [description, setDescription] = useState('');
 
-  // Default client selection on load or changes
-  useEffect(() => {
-    if (accounts.length > 0) {
-      if (!selectedClient) {
-        setSelectedClient(accounts[0].clientName);
-        setPlatform(accounts[0].platform);
-      }
-    } else {
-      setSelectedClient('__custom__');
-    }
-  }, [accounts, selectedClient]);
+  // Schedule / action
+  const [action, setAction] = useState<'draft' | 'schedule'>('draft');
+  const [scheduleTimes, setScheduleTimes] = useState<string[]>(['']);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // When client changes from select, auto-align platform with that account if available
-  const handleClientChange = (val: string) => {
-    setSelectedClient(val);
-    const matched = accounts.find((a) => a.clientName === val);
-    if (matched) {
-      setPlatform(matched.platform);
-    }
-  };
-
-  // Set default schedule date to tomorrow at 10:00 AM
+  // Default schedule date (tomorrow 10AM)
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(10, 0, 0, 0);
     const tzOffset = tomorrow.getTimezoneOffset() * 60000;
-    const localISOTime = new Date(tomorrow.getTime() - tzOffset).toISOString().slice(0, 16);
-    setScheduledAt(localISOTime);
+    const localISO = new Date(tomorrow.getTime() - tzOffset).toISOString().slice(0, 16);
+    setScheduleTimes([localISO]);
   }, []);
 
-  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Auto-select all connected accounts on load
+  useEffect(() => {
+    const connected = accounts.filter(a => a.connectionStatus === 'Connected').map(a => a.id);
+    setSelectedAccounts(new Set(connected));
+  }, [accounts]);
+
+  const toggleAccount = (id: string) => {
+    setSelectedAccounts(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+
+  // Group accounts by client name
+  const clientGroups = accounts.reduce<Record<string, typeof accounts>>((acc, a) => {
+    if (!acc[a.clientName]) acc[a.clientName] = [];
+    acc[a.clientName].push(a);
+    return acc;
+  }, {});
+
+  // Media upload
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     setMediaFile(file);
     const isVid = file.type.startsWith('video');
     setMediaType(isVid ? 'video' : 'image');
-
-    const previewUrl = URL.createObjectURL(file);
-    setMediaPreview(previewUrl);
-
-    // Automatically upload to Supabase storage to generate public HTTPS URL
+    setMediaPreview(URL.createObjectURL(file));
+    setUploadedUrl('');
     setIsUploading(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await fetch('/api/upload', {
-        method: 'POST',
-        body: fd,
-      });
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
       const data = await res.json();
-      if (data.url) {
-        setUploadedUrl(data.url);
-      } else {
-        console.warn('Upload error from server:', data.error);
-      }
-    } catch (uploadErr) {
-      console.error('Failed to upload file to storage:', uploadErr);
+      if (data.url) setUploadedUrl(data.url);
+    } catch (err) {
+      console.error('Upload error:', err);
     } finally {
       setIsUploading(false);
     }
@@ -111,293 +126,377 @@ export default function CreatePostPage() {
 
   const removeMedia = () => {
     setMediaFile(null);
-    if (mediaPreview && mediaPreview.startsWith('blob:')) {
-      URL.revokeObjectURL(mediaPreview);
-    }
+    if (mediaPreview?.startsWith('blob:')) URL.revokeObjectURL(mediaPreview);
     setMediaPreview('');
     setUploadedUrl('');
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
+    setUrlInput('');
+    setDriveInput('');
+    setDriveResolved('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const resolveDriveLink = () => {
+    const id = extractDriveId(driveInput.trim());
+    if (!id) { alert('Invalid Google Drive link. Make sure to share the file with "Anyone with link can view".'); return; }
+    const url = getDriveDirectUrl(id);
+    setDriveResolved(url);
+    setUploadedUrl(url);
+    setMediaType('image'); // user can change
+  };
 
-    const finalClientName = selectedClient === '__custom__' 
-      ? customClientName.trim() 
-      : selectedClient.trim();
+  const getFinalMediaUrl = () => {
+    if (uploadedUrl) return uploadedUrl;
+    if (mediaTab === 'url' && urlInput.startsWith('http')) return urlInput;
+    if (mediaTab === 'drive' && driveResolved) return driveResolved;
+    return '';
+  };
 
-    if (!finalClientName) {
-      alert('Please select or specify a client name.');
-      return;
-    }
+  const addScheduleTime = () => {
+    const last = scheduleTimes[scheduleTimes.length - 1];
+    if (!last) return;
+    const next = new Date(last);
+    next.setDate(next.getDate() + 1);
+    const tzOff = next.getTimezoneOffset() * 60000;
+    setScheduleTimes([...scheduleTimes, new Date(next.getTime() - tzOff).toISOString().slice(0, 16)]);
+  };
 
-    if (!caption.trim() && !title.trim()) {
-      alert('Please provide at least a title or caption for the post.');
-      return;
-    }
+  const removeScheduleTime = (i: number) => {
+    if (scheduleTimes.length === 1) return;
+    setScheduleTimes(scheduleTimes.filter((_, idx) => idx !== i));
+  };
 
-    if (timingMode === 'schedule' && !scheduledAt) {
-      alert('Please select a scheduled date and time.');
-      return;
-    }
+  const updateScheduleTime = (i: number, val: string) => {
+    const updated = [...scheduleTimes];
+    updated[i] = val;
+    setScheduleTimes(updated);
+  };
 
-    let finalMediaUrl = uploadedUrl;
+  const handleSubmit = async (submitAction: 'publish' | 'draft' | 'schedule') => {
+    if (selectedAccounts.size === 0) { alert('Please select at least one account.'); return; }
+    if (!caption.trim() && !title.trim()) { alert('Please enter a title or caption.'); return; }
+    if (submitAction === 'schedule' && scheduleTimes.some(t => !t)) { alert('Please fill in all schedule times.'); return; }
 
-    // If file is selected but upload not completed yet, perform upload now
+    let finalMediaUrl = getFinalMediaUrl();
+
+    // Upload file if not yet uploaded
     if (mediaFile && !finalMediaUrl) {
       setIsUploading(true);
       try {
         const fd = new FormData();
         fd.append('file', mediaFile);
-        const res = await fetch('/api/upload', {
-          method: 'POST',
-          body: fd,
-        });
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
         const data = await res.json();
-        if (data.url) {
-          finalMediaUrl = data.url;
-        }
-      } catch (err) {
-        console.error('Final upload fallback failed:', err);
+        if (data.url) finalMediaUrl = data.url;
       } finally {
         setIsUploading(false);
       }
     }
 
-    // Determine status: "now" saves as "draft", "schedule" saves as "scheduled"
-    const isScheduled = timingMode === 'schedule';
-    const status = isScheduled ? 'scheduled' : 'draft';
+    setIsSubmitting(true);
+    try {
+      const selectedAccountsList = accounts.filter(a => selectedAccounts.has(a.id));
+      const timesToCreate = submitAction === 'schedule' ? scheduleTimes : [undefined];
 
-    await addPost({
-      clientName: finalClientName,
-      platform,
-      title: title.trim(),
-      caption: caption.trim(),
-      description: description.trim(),
-      mediaUrl: finalMediaUrl || (mediaPreview.startsWith('http') ? mediaPreview : undefined),
-      mediaType: finalMediaUrl || mediaPreview ? mediaType : undefined,
-      mediaName: mediaFile?.name || (finalMediaUrl ? 'attached-media' : undefined),
-      isScheduled,
-      scheduledAt: isScheduled ? scheduledAt : undefined,
-      status,
-    });
+      for (const acc of selectedAccountsList) {
+        for (const schedTime of timesToCreate) {
+          await addPost({
+            clientName: acc.clientName,
+            platform: acc.platform,
+            accountId: acc.id,
+            title: title.trim(),
+            caption: caption.trim(),
+            description: description.trim(),
+            mediaUrl: finalMediaUrl || undefined,
+            mediaType: finalMediaUrl ? mediaType : undefined,
+            mediaName: mediaFile?.name || (finalMediaUrl ? 'media' : undefined),
+            isScheduled: submitAction === 'schedule',
+            scheduledAt: schedTime,
+            status: submitAction === 'schedule' ? 'scheduled' : 'draft',
+          });
+        }
+      }
 
-    // Navigate to status page
-    router.push('/status?created=true');
+      router.push('/status?created=true');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
+  const totalPosts = selectedAccounts.size * (action === 'schedule' ? scheduleTimes.length : 1);
+
   return (
-    <div className="main-content" style={{ maxWidth: '780px' }}>
+    <div className="main-content" style={{ maxWidth: '800px' }}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Create Post</h1>
-          <p className="page-subtitle">
-            Draft or schedule content for Instagram, Facebook, or YouTube.
-          </p>
+          <p className="page-subtitle">Publish or schedule content across multiple platforms at once.</p>
         </div>
       </div>
 
       <div className="card">
-        <form onSubmit={handleSubmit}>
-          {/* Client Select */}
-          <div className="form-group">
-            <label className="form-label">Client</label>
-            <select
-              className="form-select"
-              value={selectedClient}
-              onChange={(e) => handleClientChange(e.target.value)}
-              required
-            >
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.clientName}>
-                  {acc.clientName} ({acc.platform} • {acc.connectionType})
-                </option>
-              ))}
-              <option value="__custom__">+ Enter Custom Client Name</option>
-            </select>
-
-            {selectedClient === '__custom__' && (
-              <div style={{ marginTop: '0.5rem' }}>
-                <input
-                  type="text"
-                  placeholder="Enter client or brand name"
-                  className="form-input"
-                  value={customClientName}
-                  onChange={(e) => setCustomClientName(e.target.value)}
-                  required
-                  autoFocus
-                />
-              </div>
-            )}
-            <p className="form-helper">
-              Select an existing client account or enter a new client name.
-            </p>
-          </div>
-
-          {/* Platform Select */}
-          <div className="form-group">
-            <label className="form-label">Target Platform</label>
-            <div className="platform-options">
-              {PLATFORMS.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  onClick={() => setPlatform(item.id)}
-                  className={`platform-card-btn ${
-                    platform === item.id ? `active-${item.id}` : ''
-                  }`}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
-              ))}
-            </div>
-            <p className="form-helper">
-              Platforms limited to Instagram, Facebook, and YouTube.
-            </p>
-          </div>
-
-          {/* Media Upload */}
-          <div className="form-group">
-            <label className="form-label">Media (Image or Video)</label>
-            <input
-              type="file"
-              ref={fileInputRef}
-              accept="image/*,video/*"
-              style={{ display: 'none' }}
-              onChange={handleMediaUpload}
-            />
-
-            {!mediaPreview ? (
-              <div
-                className="media-dropzone"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <UploadCloud size={32} style={{ color: '#94a3b8', margin: '0 auto 0.5rem' }} />
-                <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                  Click to select an Image or Video
-                </p>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.2rem' }}>
-                  Supports JPG, PNG, MP4, MOV. Instant local preview.
-                </p>
-              </div>
-            ) : (
-              <div className="media-preview-box">
-                {mediaType === 'image' ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={mediaPreview} alt="Upload preview" />
-                ) : (
-                  <video src={mediaPreview} controls />
-                )}
-                <button
-                  type="button"
-                  onClick={removeMedia}
-                  className="media-remove-btn"
-                  title="Remove media"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            )}
-            {mediaFile && (
-              <p className="form-helper" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                {mediaType === 'video' ? <Film size={12} /> : <FileImage size={12} />}
-                {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)
-              </p>
-            )}
-          </div>
-
-          {/* Manual Title */}
-          <div className="form-group">
-            <label className="form-label">Manual Title</label>
-            <input
-              type="text"
-              placeholder="e.g. Summer Promo Launch Video"
-              className="form-input"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-            <p className="form-helper">Headline or internal title for the post.</p>
-          </div>
-
-          {/* Manual Caption */}
-          <div className="form-group">
-            <label className="form-label">Manual Caption</label>
-            <textarea
-              placeholder="Write the social media post caption, hashtags, and call to action..."
-              className="form-textarea"
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              rows={4}
-            />
-          </div>
-
-          {/* Manual Description */}
-          <div className="form-group">
-            <label className="form-label">Manual Description / Internal Notes</label>
-            <textarea
-              placeholder="Additional post notes, YouTube description snippet, or client briefing notes..."
-              className="form-textarea"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={2}
-            />
-          </div>
-
-          {/* Post Now or Schedule Toggle */}
-          <div className="form-group">
-            <label className="form-label">Publishing Schedule</label>
-            <div className="timing-toggle">
-              <button
-                type="button"
-                className={`timing-tab ${timingMode === 'now' ? 'active' : ''}`}
-                onClick={() => setTimingMode('now')}
-              >
-                <Send size={15} />
-                <span>Post Now (Save as Draft)</span>
+        {/* ======== ACCOUNT SELECTION ======== */}
+        <div className="form-group">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
+            <label className="form-label" style={{ marginBottom: 0 }}>Select Accounts & Platforms</label>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="button" className="btn btn-secondary"
+                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}
+                onClick={() => setSelectedAccounts(new Set(accounts.filter(a => a.connectionStatus === 'Connected').map(a => a.id)))}>
+                Select All Connected
               </button>
-
-              <button
-                type="button"
-                className={`timing-tab ${timingMode === 'schedule' ? 'active' : ''}`}
-                onClick={() => setTimingMode('schedule')}
-              >
-                <Calendar size={15} />
-                <span>Schedule with Date & Time</span>
+              <button type="button" className="btn btn-secondary"
+                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}
+                onClick={() => setSelectedAccounts(new Set())}>
+                Clear
               </button>
             </div>
+          </div>
 
-            {timingMode === 'schedule' && (
-              <div style={{ marginTop: '0.85rem' }}>
-                <label className="form-label" style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                  Select Schedule Date & Time
+          <div className="account-select-grid">
+            {Object.entries(clientGroups).map(([clientName, accs]) => (
+              <div key={clientName} className="account-client-block">
+                <div className="account-client-name">{clientName}</div>
+                <div className="account-platform-options">
+                  {accs.map((acc) => {
+                    const isSelected = selectedAccounts.has(acc.id);
+                    const isDisconnected = acc.connectionStatus !== 'Connected';
+                    return (
+                      <button
+                        key={acc.id}
+                        type="button"
+                        className={`account-platform-chip ${isSelected ? `selected-${acc.platform}` : ''} ${isDisconnected ? 'disconnected' : ''}`}
+                        onClick={() => !isDisconnected && toggleAccount(acc.id)}
+                        title={isDisconnected ? `${acc.platform} — Not Connected` : `${acc.platform} — Click to toggle`}
+                      >
+                        {PLATFORM_ICONS[acc.platform]}
+                        <span>{acc.platform}</span>
+                        {isSelected && <Check size={11} />}
+                        {isDisconnected && <span style={{ fontSize: '0.65rem' }}>✗</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {accounts.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem', textAlign: 'center' }}>
+              No accounts found. <a href="/accounts" style={{ color: 'var(--primary)' }}>Add accounts first →</a>
+            </div>
+          )}
+          <p className="form-helper">
+            {selectedAccounts.size} account{selectedAccounts.size !== 1 ? 's' : ''} selected
+            {action === 'schedule' && scheduleTimes.length > 1 ? ` × ${scheduleTimes.length} times = ${totalPosts} posts` : ''}
+          </p>
+        </div>
+
+        {/* ======== MEDIA ======== */}
+        <div className="form-group">
+          <label className="form-label">Media</label>
+
+          <div className="media-tabs">
+            {[
+              { id: 'upload', icon: <UploadCloud size={14} />, label: 'Upload File' },
+              { id: 'url', icon: <Link size={14} />, label: 'Direct URL' },
+              { id: 'drive', icon: <Film size={14} />, label: 'Google Drive' },
+            ].map(t => (
+              <button key={t.id} type="button"
+                className={`media-tab ${mediaTab === t.id ? 'active' : ''}`}
+                onClick={() => { setMediaTab(t.id as typeof mediaTab); removeMedia(); }}>
+                {t.icon} {t.label}
+              </button>
+            ))}
+          </div>
+
+          <input type="file" ref={fileInputRef} accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
+
+          {/* Upload tab */}
+          {mediaTab === 'upload' && !mediaPreview && (
+            <div className="media-dropzone" onClick={() => fileInputRef.current?.click()}>
+              <UploadCloud size={32} style={{ color: 'var(--text-dim)', margin: '0 auto 0.5rem' }} />
+              <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>Click to upload Image or Video</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.3rem' }}>JPG, PNG, MP4, MOV — uploads to public storage</p>
+            </div>
+          )}
+
+          {/* URL tab */}
+          {mediaTab === 'url' && (
+            <div>
+              <div className="drive-link-box">
+                <Link size={16} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
+                <input type="url" placeholder="https://example.com/image.jpg or video.mp4"
+                  value={urlInput} onChange={e => { setUrlInput(e.target.value); setUploadedUrl(e.target.value); }} />
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <input type="radio" checked={mediaType === 'image'} onChange={() => setMediaType('image')} /> Image
                 </label>
-                <input
-                  type="datetime-local"
-                  className="form-input"
-                  value={scheduledAt}
-                  onChange={(e) => setScheduledAt(e.target.value)}
-                  required={timingMode === 'schedule'}
-                />
+                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <input type="radio" checked={mediaType === 'video'} onChange={() => setMediaType('video')} /> Video
+                </label>
               </div>
-            )}
+              {urlInput && urlInput.startsWith('http') && (
+                <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.35rem' }}>✓ URL will be used as media</p>
+              )}
+            </div>
+          )}
+
+          {/* Google Drive tab */}
+          {mediaTab === 'drive' && (
+            <div>
+              <div className="drive-link-box">
+                <Film size={16} style={{ color: '#34a853', flexShrink: 0 }} />
+                <input type="text" placeholder="Paste Google Drive link (file must be public)"
+                  value={driveInput} onChange={e => { setDriveInput(e.target.value); setDriveResolved(''); }} />
+                <button type="button" className="btn btn-primary"
+                  style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                  onClick={resolveDriveLink}>
+                  Use Link
+                </button>
+              </div>
+              {driveResolved ? (
+                <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.4rem' }}>
+                  ✓ Drive link resolved. File must be set to &quot;Anyone with link can view&quot;.
+                </p>
+              ) : (
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.4rem' }}>
+                  Formats: drive.google.com/file/d/FILE_ID/view or open?id=FILE_ID
+                </p>
+              )}
+              {driveResolved && (
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <input type="radio" checked={mediaType === 'image'} onChange={() => setMediaType('image')} /> Image
+                  </label>
+                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <input type="radio" checked={mediaType === 'video'} onChange={() => setMediaType('video')} /> Video / Reel
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Media Preview */}
+          {mediaPreview && mediaTab === 'upload' && (
+            <div className="media-preview-box">
+              {mediaType === 'image' ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={mediaPreview} alt="Preview" />
+              ) : (
+                <video src={mediaPreview} controls />
+              )}
+              <button type="button" onClick={removeMedia} className="media-remove-btn" title="Remove">
+                <X size={16} />
+              </button>
+            </div>
+          )}
+
+          {mediaFile && (
+            <p className="form-helper" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.4rem' }}>
+              {mediaType === 'video' ? <Film size={12} /> : <FileImage size={12} />}
+              {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)
+              {isUploading && <span style={{ color: 'var(--warning)' }}>— Uploading...</span>}
+              {uploadedUrl && !isUploading && <span style={{ color: 'var(--success)' }}>— ✓ Uploaded</span>}
+            </p>
+          )}
+        </div>
+
+        {/* ======== TITLE ======== */}
+        <div className="form-group">
+          <label className="form-label">Title</label>
+          <input type="text" placeholder="e.g. Summer Campaign Launch" className="form-input"
+            value={title} onChange={e => setTitle(e.target.value)} />
+        </div>
+
+        {/* ======== CAPTION ======== */}
+        <div className="form-group">
+          <label className="form-label">Caption</label>
+          <textarea placeholder="Write your caption, hashtags, and call to action..." className="form-textarea"
+            value={caption} onChange={e => setCaption(e.target.value)} rows={4} />
+        </div>
+
+        {/* ======== DESCRIPTION / NOTES ======== */}
+        <div className="form-group">
+          <label className="form-label">Notes / YouTube Description</label>
+          <textarea placeholder="Internal notes or YouTube video description..." className="form-textarea"
+            value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+        </div>
+
+        {/* ======== SCHEDULE TIMES (only when schedule action) ======== */}
+        {action === 'schedule' && (
+          <div className="form-group">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+              <label className="form-label" style={{ marginBottom: 0 }}>Schedule Times</label>
+              <button type="button" className="btn btn-secondary"
+                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', gap: '0.35rem' }}
+                onClick={addScheduleTime}>
+                <Plus size={13} /> Add Another Time
+              </button>
+            </div>
+            {scheduleTimes.map((t, i) => (
+              <div key={i} className="schedule-time-item">
+                <div className="schedule-time-num">{i + 1}</div>
+                <input type="datetime-local" className="form-input" style={{ flex: 1 }}
+                  value={t} onChange={e => updateScheduleTime(i, e.target.value)} required />
+                {scheduleTimes.length > 1 && (
+                  <button type="button" className="btn-icon-danger" onClick={() => removeScheduleTime(i)}>
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
             <p className="form-helper">
-              {timingMode === 'now'
-                ? 'Will save post with status "draft".'
-                : 'Will save post with status "scheduled" at the specified date & time.'}
+              <Clock size={11} style={{ display: 'inline', marginRight: '0.3rem' }} />
+              Will create {selectedAccounts.size * scheduleTimes.length} total post{selectedAccounts.size * scheduleTimes.length !== 1 ? 's' : ''}
+              ({selectedAccounts.size} account{selectedAccounts.size !== 1 ? 's' : ''} × {scheduleTimes.length} time{scheduleTimes.length !== 1 ? 's' : ''})
             </p>
           </div>
+        )}
 
-          {/* Submit Button */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
-            <button type="submit" className="btn btn-primary" style={{ minWidth: '160px' }}>
-              {timingMode === 'schedule' ? <Calendar size={15} /> : <Send size={15} />}
-              <span>{timingMode === 'schedule' ? 'Schedule Post' : 'Save Post (Draft)'}</span>
+        {/* ======== ACTION BUTTONS ======== */}
+        <div className="action-buttons-row">
+          <button type="button" className="btn btn-secondary"
+            onClick={() => router.push('/status')}>
+            Cancel
+          </button>
+
+          <button type="button" className="btn btn-draft"
+            disabled={isSubmitting || isUploading}
+            onClick={() => { setAction('draft'); handleSubmit('draft'); }}>
+            <FileImage size={15} />
+            <span>Save Draft</span>
+          </button>
+
+          <button type="button" className="btn btn-schedule"
+            disabled={isSubmitting || isUploading}
+            onClick={() => { setAction('schedule'); }}>
+            <Calendar size={15} />
+            <span>Schedule</span>
+          </button>
+
+          {action === 'schedule' && (
+            <button type="button" className="btn btn-primary"
+              disabled={isSubmitting || isUploading}
+              onClick={() => handleSubmit('schedule')}>
+              <Check size={15} />
+              <span>
+                {isSubmitting ? 'Saving...' : `Confirm Schedule${scheduleTimes.length > 1 ? ` (${scheduleTimes.length} times)` : ''}`}
+              </span>
             </button>
-          </div>
-        </form>
+          )}
+
+          {action !== 'schedule' && (
+            <button type="button" className="btn btn-success"
+              disabled={isSubmitting || isUploading}
+              onClick={() => { setAction('draft'); handleSubmit('publish'); }}>
+              <Send size={15} />
+              <span>
+                {isSubmitting ? 'Publishing...' : `Publish Now${selectedAccounts.size > 1 ? ` (${selectedAccounts.size})` : ''}`}
+              </span>
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
