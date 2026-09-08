@@ -233,6 +233,9 @@ export async function GET(
           oauth_account_id: accountId,
           updated_at: new Date().toISOString(),
         };
+        if (clientName && clientName !== 'Instagram Account' && clientName !== 'Facebook Page') {
+          updatePayload.client_name = clientName;
+        }
         if (refreshToken) updatePayload.oauth_refresh_token = refreshToken;
         if (expiresAt) updatePayload.oauth_token_expires_at = expiresAt;
         if (clientId) updatePayload.client_id = clientId;
