@@ -119,7 +119,32 @@ export async function GET(
           }
         }
 
+        // Fallback: Try via Business Portfolio (for pages managed through Business Manager)
         if (!igFound) {
+          try {
+            const meRes2 = await fetch(`https://graph.facebook.com/v22.0/me?fields=businesses{owned_pages{id,name,access_token,instagram_business_account{id,username}}}&access_token=${userAccessToken}`);
+            const meData2 = await meRes2.json();
+            const businesses = meData2.businesses?.data || [];
+            for (const biz of businesses) {
+              const pages = biz.owned_pages?.data || [];
+              for (const page of pages) {
+                if (page.instagram_business_account) {
+                  accountId = page.instagram_business_account.id;
+                  clientName = page.instagram_business_account.username || page.name;
+                  accessToken = page.access_token || userAccessToken;
+                  igFound = true;
+                  break;
+                }
+              }
+              if (igFound) break;
+            }
+          } catch (bizErr) {
+            console.warn('[IG Callback] Business portfolio fallback failed:', bizErr);
+          }
+        }
+
+        if (!igFound) {
+          // Last resort: use user ID (will be updated when page is properly linked)
           const meRes = await fetch(`https://graph.facebook.com/v22.0/me?access_token=${userAccessToken}`);
           const meData = await meRes.json();
           accountId = meData.id || `meta-${Date.now()}`;

@@ -50,7 +50,7 @@ export async function GET(
     }
 
     const redirectUri = getInstagramOAuthRedirectUri(request);
-    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list';
+    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list,business_management';
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
