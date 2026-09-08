@@ -20,6 +20,7 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
+  const stateAccountId = searchParams.get('state');
 
   if (error || !code) {
     return NextResponse.redirect(
@@ -201,35 +202,53 @@ export async function GET(
         // Table might be in transition
       }
 
-      // 2. Check if account already exists for this client + platform
-      const { data: existingAcc } = await supabase
-        .from('accounts')
-        .select('id')
-        .eq('client_name', clientName)
-        .eq('platform', formattedPlatform)
-        .maybeSingle();
+      // 2. Resolve target account: if state passed an account ID, prioritize updating that row!
+      let targetAccountId: string | null = null;
+      if (stateAccountId) {
+        const { data: accById } = await supabase
+          .from('accounts')
+          .select('id, client_name')
+          .eq('id', stateAccountId)
+          .maybeSingle();
+        if (accById?.id) {
+          targetAccountId = accById.id;
+        }
+      }
 
-      let targetAccountId = existingAcc?.id;
+      if (!targetAccountId) {
+        const { data: existingAcc } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('client_name', clientName)
+          .eq('platform', formattedPlatform)
+          .maybeSingle();
+        targetAccountId = existingAcc?.id || null;
+      }
 
       if (targetAccountId) {
-        await supabase
+        const updatePayload: any = {
+          connection_type: 'oauth',
+          connection_status: 'Connected',
+          oauth_access_token: accessToken,
+          oauth_account_id: accountId,
+          updated_at: new Date().toISOString(),
+        };
+        if (refreshToken) updatePayload.oauth_refresh_token = refreshToken;
+        if (expiresAt) updatePayload.oauth_token_expires_at = expiresAt;
+        if (clientId) updatePayload.client_id = clientId;
+
+        const { error: updateErr } = await supabase
           .from('accounts')
-          .update({
-            connection_type: 'oauth',
-            connection_status: 'Connected',
-            oauth_access_token: accessToken,
-            ...(refreshToken ? { oauth_refresh_token: refreshToken } : {}),
-            ...(expiresAt ? { oauth_token_expires_at: expiresAt } : {}),
-            oauth_account_id: accountId,
-            ...(clientId ? { client_id: clientId } : {}),
-            updated_at: new Date().toISOString(),
-          })
+          .update(updatePayload)
           .eq('id', targetAccountId);
+
+        if (updateErr) {
+          console.error('[OAuth Callback Update Error]:', updateErr);
+        }
       } else {
         targetAccountId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-oauth-${Date.now()}`;
-        await supabase.from('accounts').insert({
+        const insertPayload: any = {
           id: targetAccountId,
-          client_id: clientId,
           client_name: clientName,
           platform: formattedPlatform,
           connection_type: 'oauth',
@@ -240,19 +259,29 @@ export async function GET(
           oauth_token_expires_at: expiresAt,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        });
+        };
+        if (clientId) insertPayload.client_id = clientId;
+
+        const { error: insertErr } = await supabase.from('accounts').insert(insertPayload);
+        if (insertErr) {
+          console.error('[OAuth Callback Insert Error]:', insertErr);
+        }
       }
 
       // 3. Log to audit trail
-      await logAudit({
-        action: 'ACCOUNT_CONNECTED_OAUTH',
-        entityType: 'account',
-        entityId: targetAccountId,
-        clientName,
-        platform: formattedPlatform,
-        status: 'success',
-        details: { accountId, expiresAt },
-      });
+      try {
+        await logAudit({
+          action: 'ACCOUNT_CONNECTED_OAUTH',
+          entityType: 'account',
+          entityId: targetAccountId,
+          clientName,
+          platform: formattedPlatform,
+          status: 'success',
+          details: { accountId, expiresAt },
+        });
+      } catch (auditErr) {
+        console.warn('Failed to log OAuth connection audit:', auditErr);
+      }
     }
 
     return NextResponse.redirect(

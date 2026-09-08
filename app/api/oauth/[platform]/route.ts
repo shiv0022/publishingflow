@@ -21,6 +21,10 @@ export async function GET(
   const { platform } = await context.params;
   const platformKey = platform.toLowerCase();
 
+  const searchParams = request.nextUrl.searchParams;
+  const accountId = searchParams.get('accountId');
+  const stateQuery = accountId ? `&state=${encodeURIComponent(accountId)}` : '';
+
   if (platformKey === 'facebook') {
     const { clientId, clientSecret } = getCleanMetaCredentials();
 
@@ -31,7 +35,7 @@ export async function GET(
     }
 
     const redirectUri = getFacebookOAuthRedirectUri(request);
-    const authUrl = buildFacebookOAuthUrl(clientId, redirectUri);
+    const authUrl = buildFacebookOAuthUrl(clientId, redirectUri) + stateQuery;
 
     return NextResponse.redirect(authUrl);
   }
@@ -50,7 +54,7 @@ export async function GET(
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
-    )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
+    )}&scope=${encodeURIComponent(scopes)}&response_type=code${stateQuery}`;
 
     return NextResponse.redirect(authUrl);
   }

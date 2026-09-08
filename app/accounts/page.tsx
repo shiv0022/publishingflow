@@ -377,7 +377,7 @@ function AccountsContent() {
                         {acc.connectionType === 'oauth' && (
                           oauthConfigured ? (
                             <a
-                              href={`/api/oauth/${acc.platform.toLowerCase()}`}
+                              href={`/api/oauth/${acc.platform.toLowerCase()}?accountId=${encodeURIComponent(acc.id)}`}
                               className="btn btn-secondary"
                               style={{ padding: '0.25rem 0.55rem', fontSize: '0.72rem' }}
                               title="Authenticate with OAuth"
