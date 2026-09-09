@@ -1,20 +1,15 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
 import { Platform } from '@/types';
-import { InstagramIcon, FacebookIcon, YouTubeIcon } from '@/components/PlatformIcons';
+import { AccountRecipientPicker } from '@/components/AccountRecipientPicker';
+import { MediaRatioHelper } from '@/components/MediaRatioHelper';
 import {
   UploadCloud, X, Send, Calendar, FileImage, Film,
-  Plus, Trash2, Link, Check, Clock
+  Plus, Trash2, Link, Check, Clock, AlertCircle, Sparkles
 } from 'lucide-react';
-
-interface SelectedAccount {
-  accountId: string;
-  clientName: string;
-  platform: Platform;
-}
 
 function extractDriveId(url: string): string | null {
   const patterns = [
@@ -34,15 +29,9 @@ function getDriveDirectUrl(fileId: string): string {
   return `https://drive.google.com/uc?export=download&id=${fileId}`;
 }
 
-const PLATFORM_ICONS: Record<Platform, React.ReactNode> = {
-  Instagram: <InstagramIcon size={14} />,
-  Facebook: <FacebookIcon size={14} />,
-  YouTube: <YouTubeIcon size={14} />,
-};
-
 export default function CreatePostPage() {
   const router = useRouter();
-  const { accounts, addPost } = useApp();
+  const { accounts, addPost, refreshData } = useApp();
 
   // Multi-account selection: Set of account IDs
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
@@ -68,8 +57,9 @@ export default function CreatePostPage() {
   const [action, setAction] = useState<'draft' | 'schedule'>('draft');
   const [scheduleTimes, setScheduleTimes] = useState<string[]>(['']);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Default schedule date (tomorrow 10AM)
+  // Default schedule date (tomorrow 10AM local time)
   useEffect(() => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -85,6 +75,7 @@ export default function CreatePostPage() {
     setSelectedAccounts(new Set(connected));
   }, [accounts]);
 
+  // Recipient Handlers
   const toggleAccount = (id: string) => {
     setSelectedAccounts(prev => {
       const n = new Set(prev);
@@ -94,14 +85,33 @@ export default function CreatePostPage() {
     });
   };
 
-  // Group accounts by client name
-  const clientGroups = accounts.reduce<Record<string, typeof accounts>>((acc, a) => {
-    if (!acc[a.clientName]) acc[a.clientName] = [];
-    acc[a.clientName].push(a);
-    return acc;
-  }, {});
+  const selectAllConnected = () => {
+    const connected = accounts.filter(a => a.connectionStatus === 'Connected').map(a => a.id);
+    setSelectedAccounts(new Set(connected));
+  };
 
-  // Media upload
+  const clearAllAccounts = () => {
+    setSelectedAccounts(new Set());
+  };
+
+  const selectPlatformOnly = (platform: Platform) => {
+    const platformAccIds = accounts
+      .filter(a => a.platform === platform && a.connectionStatus === 'Connected')
+      .map(a => a.id);
+
+    setSelectedAccounts(prev => {
+      const hasAll = platformAccIds.every(id => prev.has(id));
+      const n = new Set(prev);
+      if (hasAll) {
+        platformAccIds.forEach(id => n.delete(id));
+      } else {
+        platformAccIds.forEach(id => n.add(id));
+      }
+      return n;
+    });
+  };
+
+  // Media upload handler
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -124,6 +134,25 @@ export default function CreatePostPage() {
     }
   };
 
+  // Handle media fitted from MediaRatioHelper Canvas tool
+  const handleMediaFitted = async (fittedFile: File, fittedPreviewUrl: string) => {
+    setMediaFile(fittedFile);
+    setMediaPreview(fittedPreviewUrl);
+    setUploadedUrl('');
+    setIsUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', fittedFile);
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.url) setUploadedUrl(data.url);
+    } catch (err) {
+      console.error('Fitted upload error:', err);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   const removeMedia = () => {
     setMediaFile(null);
     if (mediaPreview?.startsWith('blob:')) URL.revokeObjectURL(mediaPreview);
@@ -137,11 +166,14 @@ export default function CreatePostPage() {
 
   const resolveDriveLink = () => {
     const id = extractDriveId(driveInput.trim());
-    if (!id) { alert('Invalid Google Drive link. Make sure to share the file with "Anyone with link can view".'); return; }
+    if (!id) {
+      alert('Invalid Google Drive link. Make sure to share the file with "Anyone with link can view".');
+      return;
+    }
     const url = getDriveDirectUrl(id);
     setDriveResolved(url);
     setUploadedUrl(url);
-    setMediaType('image'); // user can change
+    setMediaType('image');
   };
 
   const getFinalMediaUrl = () => {
@@ -171,10 +203,22 @@ export default function CreatePostPage() {
     setScheduleTimes(updated);
   };
 
+  // Submit Handler: Supports Draft, Schedule, and Direct Real Publish
   const handleSubmit = async (submitAction: 'publish' | 'draft' | 'schedule') => {
-    if (selectedAccounts.size === 0) { alert('Please select at least one account.'); return; }
-    if (!caption.trim() && !title.trim()) { alert('Please enter a title or caption.'); return; }
-    if (submitAction === 'schedule' && scheduleTimes.some(t => !t)) { alert('Please fill in all schedule times.'); return; }
+    setSubmitError(null);
+
+    if (selectedAccounts.size === 0) {
+      setSubmitError('Please select at least one account to post to.');
+      return;
+    }
+    if (!caption.trim() && !title.trim()) {
+      setSubmitError('Please enter a caption or title for the post.');
+      return;
+    }
+    if (submitAction === 'schedule' && scheduleTimes.some(t => !t)) {
+      setSubmitError('Please fill in valid dates and times for scheduling.');
+      return;
+    }
 
     let finalMediaUrl = getFinalMediaUrl();
 
@@ -196,10 +240,14 @@ export default function CreatePostPage() {
     try {
       const selectedAccountsList = accounts.filter(a => selectedAccounts.has(a.id));
       const timesToCreate = submitAction === 'schedule' ? scheduleTimes : [undefined];
+      const createdPosts = [];
 
       for (const acc of selectedAccountsList) {
-        for (const schedTime of timesToCreate) {
-          await addPost({
+        for (const rawSchedTime of timesToCreate) {
+          // Normalize to UTC ISO string
+          const normalizedScheduledAt = rawSchedTime ? new Date(rawSchedTime).toISOString() : undefined;
+
+          const created = await addPost({
             clientName: acc.clientName,
             platform: acc.platform,
             accountId: acc.id,
@@ -210,22 +258,53 @@ export default function CreatePostPage() {
             mediaType: finalMediaUrl ? mediaType : undefined,
             mediaName: mediaFile?.name || (finalMediaUrl ? 'media' : undefined),
             isScheduled: submitAction === 'schedule',
-            scheduledAt: schedTime,
+            scheduledAt: normalizedScheduledAt,
             status: submitAction === 'schedule' ? 'scheduled' : 'draft',
           });
+          createdPosts.push(created);
         }
       }
 
+      // If user clicked "Publish Now", trigger immediate execution for OAuth accounts
+      if (submitAction === 'publish') {
+        const publishPromises = createdPosts.map(async (p) => {
+          try {
+            const res = await fetch('/api/publish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ postId: p.id }),
+            });
+            return await res.json();
+          } catch (e) {
+            return { error: 'Network error publishing' };
+          }
+        });
+
+        await Promise.all(publishPromises);
+        await refreshData();
+        router.push('/status?published=true');
+        return;
+      }
+
+      // If scheduled, refresh data and route to status
+      await refreshData();
       router.push('/status?created=true');
+    } catch (err: any) {
+      setSubmitError(err.message || 'Failed to create post');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // Selected platforms list for aspect ratio validation
+  const selectedPlatformsList = Array.from(
+    new Set(accounts.filter(a => selectedAccounts.has(a.id)).map(a => a.platform))
+  );
+
   const totalPosts = selectedAccounts.size * (action === 'schedule' ? scheduleTimes.length : 1);
 
   return (
-    <div className="main-content" style={{ maxWidth: '800px' }}>
+    <div className="main-content" style={{ maxWidth: '850px' }}>
       <div className="page-header">
         <div>
           <h1 className="page-title">Create Post</h1>
@@ -233,67 +312,40 @@ export default function CreatePostPage() {
         </div>
       </div>
 
+      {submitError && (
+        <div style={{
+          background: 'var(--danger-light)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          color: 'var(--danger)',
+          borderRadius: 'var(--radius)',
+          padding: '0.75rem 1rem',
+          marginBottom: '1.25rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          fontSize: '0.875rem',
+        }}>
+          <AlertCircle size={16} />
+          <span>{submitError}</span>
+        </div>
+      )}
+
       <div className="card">
-        {/* ======== ACCOUNT SELECTION ======== */}
+        {/* ======== 1. EMAIL-STYLE ACCOUNT RECIPIENT SELECTOR ======== */}
         <div className="form-group">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-            <label className="form-label" style={{ marginBottom: 0 }}>Select Accounts & Platforms</label>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button type="button" className="btn btn-secondary"
-                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}
-                onClick={() => setSelectedAccounts(new Set(accounts.filter(a => a.connectionStatus === 'Connected').map(a => a.id)))}>
-                Select All Connected
-              </button>
-              <button type="button" className="btn btn-secondary"
-                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem' }}
-                onClick={() => setSelectedAccounts(new Set())}>
-                Clear
-              </button>
-            </div>
-          </div>
-
-          <div className="account-select-grid">
-            {Object.entries(clientGroups).map(([clientName, accs]) => (
-              <div key={clientName} className="account-client-block">
-                <div className="account-client-name">{clientName}</div>
-                <div className="account-platform-options">
-                  {accs.map((acc) => {
-                    const isSelected = selectedAccounts.has(acc.id);
-                    const isDisconnected = acc.connectionStatus !== 'Connected';
-                    return (
-                      <button
-                        key={acc.id}
-                        type="button"
-                        className={`account-platform-chip ${isSelected ? `selected-${acc.platform}` : ''} ${isDisconnected ? 'disconnected' : ''}`}
-                        onClick={() => !isDisconnected && toggleAccount(acc.id)}
-                        title={isDisconnected ? `${acc.platform} — Not Connected` : `${acc.platform} — Click to toggle`}
-                      >
-                        {PLATFORM_ICONS[acc.platform]}
-                        <span>{acc.platform}</span>
-                        {isSelected && <Check size={11} />}
-                        {isDisconnected && <span style={{ fontSize: '0.65rem' }}>✗</span>}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {accounts.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem', textAlign: 'center' }}>
-              No accounts found. <a href="/accounts" style={{ color: 'var(--primary)' }}>Add accounts first →</a>
-            </div>
-          )}
-          <p className="form-helper">
-            {selectedAccounts.size} account{selectedAccounts.size !== 1 ? 's' : ''} selected
-            {action === 'schedule' && scheduleTimes.length > 1 ? ` × ${scheduleTimes.length} times = ${totalPosts} posts` : ''}
-          </p>
+          <AccountRecipientPicker
+            accounts={accounts}
+            selectedAccountIds={selectedAccounts}
+            onToggleAccount={toggleAccount}
+            onSelectAllConnected={selectAllConnected}
+            onClearAll={clearAllAccounts}
+            onSelectPlatformOnly={selectPlatformOnly}
+          />
         </div>
 
-        {/* ======== MEDIA ======== */}
+        {/* ======== 2. MEDIA WITH ASPECT RATIO DETECTION & FIT TOOL ======== */}
         <div className="form-group">
-          <label className="form-label">Media</label>
+          <label className="form-label">Media (Image or Video)</label>
 
           <div className="media-tabs">
             {[
@@ -311,16 +363,16 @@ export default function CreatePostPage() {
 
           <input type="file" ref={fileInputRef} accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
 
-          {/* Upload tab */}
+          {/* Upload Dropzone */}
           {mediaTab === 'upload' && !mediaPreview && (
             <div className="media-dropzone" onClick={() => fileInputRef.current?.click()}>
               <UploadCloud size={32} style={{ color: 'var(--text-dim)', margin: '0 auto 0.5rem' }} />
               <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>Click to upload Image or Video</p>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.3rem' }}>JPG, PNG, MP4, MOV — uploads to public storage</p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.3rem' }}>JPG, PNG, MP4, MOV — automatically checks ratio compatibility</p>
             </div>
           )}
 
-          {/* URL tab */}
+          {/* URL Tab */}
           {mediaTab === 'url' && (
             <div>
               <div className="drive-link-box">
@@ -336,13 +388,10 @@ export default function CreatePostPage() {
                   <input type="radio" checked={mediaType === 'video'} onChange={() => setMediaType('video')} /> Video
                 </label>
               </div>
-              {urlInput && urlInput.startsWith('http') && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.35rem' }}>✓ URL will be used as media</p>
-              )}
             </div>
           )}
 
-          {/* Google Drive tab */}
+          {/* Google Drive Tab */}
           {mediaTab === 'drive' && (
             <div>
               <div className="drive-link-box">
@@ -355,30 +404,16 @@ export default function CreatePostPage() {
                   Use Link
                 </button>
               </div>
-              {driveResolved ? (
+              {driveResolved && (
                 <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.4rem' }}>
                   ✓ Drive link resolved. File must be set to &quot;Anyone with link can view&quot;.
                 </p>
-              ) : (
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.4rem' }}>
-                  Formats: drive.google.com/file/d/FILE_ID/view or open?id=FILE_ID
-                </p>
-              )}
-              {driveResolved && (
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <input type="radio" checked={mediaType === 'image'} onChange={() => setMediaType('image')} /> Image
-                  </label>
-                  <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                    <input type="radio" checked={mediaType === 'video'} onChange={() => setMediaType('video')} /> Video / Reel
-                  </label>
-                </div>
               )}
             </div>
           )}
 
-          {/* Media Preview */}
-          {mediaPreview && mediaTab === 'upload' && (
+          {/* Media Preview Box */}
+          {mediaPreview && (
             <div className="media-preview-box">
               {mediaType === 'image' ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -392,38 +427,49 @@ export default function CreatePostPage() {
             </div>
           )}
 
+          {/* Aspect Ratio Helper, Compatibility Warning & 1-Click Fit */}
+          {mediaPreview && (
+            <MediaRatioHelper
+              mediaUrl={mediaPreview}
+              mediaType={mediaType}
+              selectedPlatforms={selectedPlatformsList}
+              onMediaFitted={handleMediaFitted}
+              originalFile={mediaFile}
+            />
+          )}
+
           {mediaFile && (
             <p className="form-helper" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.4rem' }}>
               {mediaType === 'video' ? <Film size={12} /> : <FileImage size={12} />}
               {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)
               {isUploading && <span style={{ color: 'var(--warning)' }}>— Uploading...</span>}
-              {uploadedUrl && !isUploading && <span style={{ color: 'var(--success)' }}>— ✓ Uploaded</span>}
+              {uploadedUrl && !isUploading && <span style={{ color: 'var(--success)' }}>— ✓ Ready</span>}
             </p>
           )}
         </div>
 
-        {/* ======== TITLE ======== */}
+        {/* ======== 3. TITLE ======== */}
         <div className="form-group">
-          <label className="form-label">Title</label>
-          <input type="text" placeholder="e.g. Summer Campaign Launch" className="form-input"
+          <label className="form-label">Post Title (Optional for Facebook / YouTube)</label>
+          <input type="text" placeholder="e.g. Summer Special Announcement" className="form-input"
             value={title} onChange={e => setTitle(e.target.value)} />
         </div>
 
-        {/* ======== CAPTION ======== */}
+        {/* ======== 4. CAPTION ======== */}
         <div className="form-group">
-          <label className="form-label">Caption</label>
+          <label className="form-label">Caption & Hashtags</label>
           <textarea placeholder="Write your caption, hashtags, and call to action..." className="form-textarea"
             value={caption} onChange={e => setCaption(e.target.value)} rows={4} />
         </div>
 
-        {/* ======== DESCRIPTION / NOTES ======== */}
+        {/* ======== 5. DESCRIPTION / NOTES ======== */}
         <div className="form-group">
           <label className="form-label">Notes / YouTube Description</label>
           <textarea placeholder="Internal notes or YouTube video description..." className="form-textarea"
             value={description} onChange={e => setDescription(e.target.value)} rows={2} />
         </div>
 
-        {/* ======== SCHEDULE TIMES (only when schedule action) ======== */}
+        {/* ======== 6. SCHEDULE TIMES ======== */}
         {action === 'schedule' && (
           <div className="form-group">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
@@ -448,13 +494,13 @@ export default function CreatePostPage() {
             ))}
             <p className="form-helper">
               <Clock size={11} style={{ display: 'inline', marginRight: '0.3rem' }} />
-              Will create {selectedAccounts.size * scheduleTimes.length} total post{selectedAccounts.size * scheduleTimes.length !== 1 ? 's' : ''}
-              ({selectedAccounts.size} account{selectedAccounts.size !== 1 ? 's' : ''} × {scheduleTimes.length} time{scheduleTimes.length !== 1 ? 's' : ''})
+              Will schedule {selectedAccounts.size * scheduleTimes.length} total post(s)
+              ({selectedAccounts.size} account(s) × {scheduleTimes.length} time(s))
             </p>
           </div>
         )}
 
-        {/* ======== ACTION BUTTONS ======== */}
+        {/* ======== 7. ACTION BUTTONS ======== */}
         <div className="action-buttons-row">
           <button type="button" className="btn btn-secondary"
             onClick={() => router.push('/status')}>
@@ -468,31 +514,29 @@ export default function CreatePostPage() {
             <span>Save Draft</span>
           </button>
 
-          <button type="button" className="btn btn-schedule"
+          <button type="button" className={`btn ${action === 'schedule' ? 'btn-primary' : 'btn-schedule'}`}
             disabled={isSubmitting || isUploading}
-            onClick={() => { setAction('schedule'); }}>
+            onClick={() => { setAction(action === 'schedule' ? 'draft' : 'schedule'); }}>
             <Calendar size={15} />
-            <span>Schedule</span>
+            <span>{action === 'schedule' ? 'Schedule Mode Active' : 'Schedule'}</span>
           </button>
 
-          {action === 'schedule' && (
+          {action === 'schedule' ? (
             <button type="button" className="btn btn-primary"
-              disabled={isSubmitting || isUploading}
+              disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
               onClick={() => handleSubmit('schedule')}>
               <Check size={15} />
               <span>
-                {isSubmitting ? 'Saving...' : `Confirm Schedule${scheduleTimes.length > 1 ? ` (${scheduleTimes.length} times)` : ''}`}
+                {isSubmitting ? 'Scheduling...' : `Confirm Schedule (${selectedAccounts.size} account${selectedAccounts.size !== 1 ? 's' : ''})`}
               </span>
             </button>
-          )}
-
-          {action !== 'schedule' && (
+          ) : (
             <button type="button" className="btn btn-success"
-              disabled={isSubmitting || isUploading}
-              onClick={() => { setAction('draft'); handleSubmit('publish'); }}>
+              disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
+              onClick={() => handleSubmit('publish')}>
               <Send size={15} />
               <span>
-                {isSubmitting ? 'Publishing...' : `Publish Now${selectedAccounts.size > 1 ? ` (${selectedAccounts.size})` : ''}`}
+                {isSubmitting ? 'Publishing...' : `Publish Now (${selectedAccounts.size})`}
               </span>
             </button>
           )}

@@ -37,7 +37,7 @@ const STATUS_FILTERS: { label: string; value: 'all' | PostStatus }[] = [
 
 function StatusContent() {
   const searchParams = useSearchParams();
-  const { posts, accounts, deletePost, updatePostStatus } = useApp();
+  const { posts, accounts, deletePost, updatePostStatus, triggerSchedulerWorker, refreshData } = useApp();
   const [activeFilter, setActiveFilter] = useState<'all' | PostStatus>('all');
   const [platformFilter, setPlatformFilter] = useState<'all' | Platform>('all');
   const [showSuccessBanner, setShowSuccessBanner] = useState(false);
@@ -95,9 +95,8 @@ function StatusContent() {
     setIsSchedulerRunning(true);
     setSchedulerMessage(null);
     try {
-      const res = await fetch('/api/cron/publish-scheduled', { method: 'POST' });
-      const data = await res.json();
-      setSchedulerMessage(data.message || 'Scheduler run complete.');
+      const res = await triggerSchedulerWorker();
+      setSchedulerMessage(res.message || 'Scheduler run complete.');
       setTimeout(() => setSchedulerMessage(null), 4000);
     } catch (err: any) {
       setSchedulerMessage('Scheduler check failed: ' + err.message);
@@ -544,17 +543,21 @@ function StatusContent() {
                         </button>
                       )}
 
-                      {/* 4. Real Publish (ONLY enabled when account is truly connected via OAuth) */}
+                      {/* 4. Real Publish / Retry (Enabled when account is connected via OAuth) */}
                       {isOauthConnected ? (
                         <button
                           onClick={() => handleRealPublish(post)}
                           disabled={publishingId === post.id || post.status === 'posted'}
-                          className="btn-action-sm btn-publish-real"
-                          title="Publish directly via OAuth API"
+                          className={`btn-action-sm ${post.status === 'failed' ? 'btn-danger-outline' : 'btn-publish-real'}`}
+                          title={post.status === 'failed' ? 'Retry publishing to social platform' : 'Publish directly via OAuth API'}
                         >
-                          <Send size={12} />
+                          {post.status === 'failed' ? <RotateCw size={12} className={publishingId === post.id ? 'animate-spin' : ''} /> : <Send size={12} />}
                           <span>
-                            {publishingId === post.id ? 'Publishing...' : `Publish to ${post.platform}`}
+                            {publishingId === post.id 
+                              ? 'Publishing...' 
+                              : post.status === 'failed' 
+                              ? 'Retry Publish' 
+                              : `Publish to ${post.platform}`}
                           </span>
                         </button>
                       ) : (

@@ -25,17 +25,21 @@ export async function GET(
   const accountId = searchParams.get('accountId');
   const stateQuery = accountId ? `&state=${encodeURIComponent(accountId)}` : '';
 
-  if (platformKey === 'facebook') {
+  if (platformKey === 'facebook' || platformKey === 'meta') {
     const { clientId, clientSecret } = getCleanMetaCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/accounts?error=oauth_not_configured&platform=facebook', request.url)
+        new URL('/accounts?error=oauth_not_configured&platform=meta', request.url)
       );
     }
 
     const redirectUri = getFacebookOAuthRedirectUri(request);
-    const authUrl = buildFacebookOAuthUrl(clientId, redirectUri) + stateQuery;
+    // Request full unified Meta permissions so 1 authorization connects both FB Page and linked Instagram account
+    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management';
+    const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&scope=${encodeURIComponent(scopes)}&response_type=code${stateQuery}`;
 
     return NextResponse.redirect(authUrl);
   }

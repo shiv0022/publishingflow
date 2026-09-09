@@ -70,6 +70,9 @@ export function mapPostFromDb(row: any): Post {
     scheduledAt: row.scheduled_at || undefined,
     status: row.status,
     publishedAt: row.published_at || undefined,
+    retryCount: row.retry_count ?? 0,
+    maxRetries: row.max_retries ?? 3,
+    lastError: row.last_error || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at || row.created_at,
   };
@@ -92,6 +95,9 @@ export function mapPostToDb(post: Omit<Post, 'createdAt' | 'updatedAt'> & { crea
     scheduled_at: post.scheduledAt || null,
     status: post.status,
     published_at: post.publishedAt || null,
+    retry_count: post.retryCount ?? 0,
+    max_retries: post.maxRetries ?? 3,
+    last_error: post.lastError || null,
     ...(post.createdAt ? { created_at: post.createdAt } : {}),
     ...(post.updatedAt ? { updated_at: post.updatedAt } : {}),
   };

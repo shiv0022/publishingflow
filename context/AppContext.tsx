@@ -43,12 +43,22 @@ interface AppContextType {
   deletePost: (id: string) => Promise<void>;
   updatePostStatus: (id: string, status: PostStatus, publishedAt?: string) => Promise<void>;
   resetToDummyData: () => Promise<void>;
+  refreshData: () => Promise<void>;
+  triggerSchedulerWorker: () => Promise<{ success: boolean; message: string; processedCount: number }>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const ACCOUNTS_STORAGE_KEY = 'publishingflow_accounts_v5';
-const POSTS_STORAGE_KEY = 'publishingflow_posts_v5';
+export const DEMO_CLIENT_NAMES = [
+  'Apex Fitness Studio',
+  'Blue Harbor Bistro',
+  'TechCraft Academy',
+  'Zenith Real Estate',
+  'Horizon Creative Labs',
+];
+
+const ACCOUNTS_STORAGE_KEY = 'publishingflow_accounts_v7_clean';
+const POSTS_STORAGE_KEY = 'publishingflow_posts_v7_clean';
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -59,77 +69,133 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // LocalStorage helper for offline/fallback mode
   const persistLocalStorage = useCallback((accs: Account[], psts: Post[]) => {
     try {
-      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accs));
-      localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(psts));
+      const cleanAccs = accs.filter(a => !DEMO_CLIENT_NAMES.includes(a.clientName));
+      const cleanPosts = psts.filter(p => !DEMO_CLIENT_NAMES.includes(p.clientName));
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(cleanAccs));
+      localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(cleanPosts));
     } catch (e) {
       console.warn('LocalStorage save warning:', e);
     }
   }, []);
 
-  // 1. LOAD DATA ON MOUNT / REFRESH FROM SUPABASE
-  useEffect(() => {
-    async function loadData() {
-      if (isSupabaseConfigured && supabase) {
-        try {
-          // Fetch accounts directly from Supabase
-          const { data: accountsData, error: accountsError } = await supabase
-            .from('accounts')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          // Fetch posts directly from Supabase
-          const { data: postsData, error: postsError } = await supabase
-            .from('posts')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-          if (!accountsError && !postsError) {
-            setIsUsingSupabase(true);
-            const loadedAccounts = (accountsData || []).map(mapAccountFromDb);
-            const loadedPosts = (postsData || []).map(mapPostFromDb);
-
-            setAccounts(loadedAccounts);
-            setPosts(loadedPosts);
-            persistLocalStorage(loadedAccounts, loadedPosts);
-            setIsLoaded(true);
-            return;
-          } else {
-            console.warn('Supabase query returned error, falling back to local cache:', accountsError || postsError);
-          }
-        } catch (err) {
-          console.warn('Supabase connection error, falling back to local cache:', err);
-        }
-      }
-
-      // Safe LocalStorage Fallback if Supabase is unconfigured or unreachable
+  // 1. REFRESH DATA FROM SUPABASE OR LOCALSTORAGE
+  const refreshData = useCallback(async () => {
+    if (isSupabaseConfigured && supabase) {
       try {
-        const savedAccounts = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-        const savedPosts = localStorage.getItem(POSTS_STORAGE_KEY);
+        const { data: accountsData, error: accountsError } = await supabase
+          .from('accounts')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-        if (savedAccounts !== null) {
-          const parsedAccs = JSON.parse(savedAccounts);
-          if (Array.isArray(parsedAccs)) setAccounts(parsedAccs);
-        } else {
-          setAccounts(initialAccounts);
-          localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(initialAccounts));
-        }
+        const { data: postsData, error: postsError } = await supabase
+          .from('posts')
+          .select('*')
+          .order('created_at', { ascending: false });
 
-        if (savedPosts !== null) {
-          const parsedPosts = JSON.parse(savedPosts);
-          if (Array.isArray(parsedPosts)) setPosts(parsedPosts);
-        } else {
-          setPosts(initialPosts);
-          localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(initialPosts));
+        if (!accountsError && !postsError) {
+          setIsUsingSupabase(true);
+          const loadedAccounts = (accountsData || [])
+            .map(mapAccountFromDb)
+            .filter((a) => !DEMO_CLIENT_NAMES.includes(a.clientName));
+          const loadedPosts = (postsData || [])
+            .map(mapPostFromDb)
+            .filter((p) => !DEMO_CLIENT_NAMES.includes(p.clientName));
+
+          setAccounts(loadedAccounts);
+          setPosts(loadedPosts);
+          persistLocalStorage(loadedAccounts, loadedPosts);
+          setIsLoaded(true);
+          return;
         }
-      } catch (e) {
-        console.error('Error reading localStorage fallback:', e);
-      } finally {
-        setIsLoaded(true);
+      } catch (err) {
+        console.warn('Supabase fetch error, fallback to cache:', err);
       }
     }
 
-    loadData();
+    // Fallback
+    try {
+      const savedAccounts = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
+      const savedPosts = localStorage.getItem(POSTS_STORAGE_KEY);
+
+      const parsedAccs = savedAccounts ? JSON.parse(savedAccounts) : [];
+      const parsedPosts = savedPosts ? JSON.parse(savedPosts) : [];
+
+      const cleanAccs = (Array.isArray(parsedAccs) ? parsedAccs : [])
+        .filter((a: any) => !DEMO_CLIENT_NAMES.includes(a.clientName));
+      const cleanPosts = (Array.isArray(parsedPosts) ? parsedPosts : [])
+        .filter((p: any) => !DEMO_CLIENT_NAMES.includes(p.clientName));
+
+      setAccounts(cleanAccs);
+      setPosts(cleanPosts);
+      localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(cleanAccs));
+      localStorage.setItem(POSTS_STORAGE_KEY, JSON.stringify(cleanPosts));
+    } catch (e) {
+      console.error('Error reading localStorage fallback:', e);
+    } finally {
+      setIsLoaded(true);
+    }
   }, [persistLocalStorage]);
+
+  // Load on mount and wipe legacy demo keys
+  useEffect(() => {
+    try {
+      localStorage.removeItem('publishingflow_accounts_v5');
+      localStorage.removeItem('publishingflow_posts_v5');
+      localStorage.removeItem('publishingflow_accounts_v6');
+      localStorage.removeItem('publishingflow_posts_v6');
+    } catch {}
+    fetch('/api/cleanup-demo', { method: 'POST' }).catch(() => {});
+    refreshData();
+  }, [refreshData]);
+
+  // Trigger scheduler API call
+  const triggerSchedulerWorker = useCallback(async () => {
+    try {
+      const res = await fetch('/api/cron/publish-scheduled', { method: 'POST' });
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        await refreshData();
+      }
+      return {
+        success: res.ok,
+        message: data.message || 'Scheduler executed successfully.',
+        processedCount: data.processedCount || 0,
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || 'Scheduler request failed.',
+        processedCount: 0,
+      };
+    }
+  }, [refreshData]);
+
+  // Global background runner (runs every 30s across any active tab)
+  useEffect(() => {
+    const runWorker = async () => {
+      try {
+        const res = await fetch('/api/cron/publish-scheduled');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.results && data.results.length > 0) {
+            console.log('[Scheduler Worker]: Processed due posts:', data.results);
+            await refreshData();
+          }
+        }
+      } catch (e) {
+        // Safe background check catch
+      }
+    };
+
+    // Run 5s after mount then every 30s
+    const initialTimer = setTimeout(runWorker, 5000);
+    const interval = setInterval(runWorker, 30000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [refreshData]);
 
   // 2. ADD ACCOUNT (SUPABASE INSERT)
   const addAccount = async (data: { 
@@ -292,26 +358,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
   };
 
-  // Reset to dummy data
+  // Permanent Clean / Reset to Empty
   const resetToDummyData = async () => {
     if (isSupabaseConfigured && supabase) {
       try {
         await supabase.from('posts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('accounts').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        for (const acc of initialAccounts) {
-          await supabase.from('accounts').insert(mapAccountToDb(acc));
-        }
-        for (const pst of initialPosts) {
-          await supabase.from('posts').insert(mapPostToDb(pst));
-        }
       } catch (err) {
         console.error('Supabase reset error:', err);
       }
     }
 
-    setAccounts(initialAccounts);
-    setPosts(initialPosts);
-    persistLocalStorage(initialAccounts, initialPosts);
+    setAccounts([]);
+    setPosts([]);
+    persistLocalStorage([], []);
   };
 
   return (
@@ -329,6 +389,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deletePost,
         updatePostStatus,
         resetToDummyData,
+        refreshData,
+        triggerSchedulerWorker,
       }}
     >
       {children}

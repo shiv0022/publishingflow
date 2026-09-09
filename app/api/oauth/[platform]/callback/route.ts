@@ -36,6 +36,7 @@ export async function GET(
     let expiresAt: string | null = null;
     let accountId = '';
     let clientName = '';
+    let linkedIgAccount: { id: string; username?: string; name?: string } | null = null;
 
     if (platformKey === 'instagram' || platformKey === 'facebook') {
       const { clientId, clientSecret } = getCleanMetaCredentials();
@@ -78,9 +79,9 @@ export async function GET(
 
       // 3. Meta Page Access-Token Flow
       if (platformKey === 'facebook') {
-        // Query user's Facebook Pages to acquire the Page Access Token for publishing
+        // Query user's Facebook Pages AND linked Instagram accounts in one call
         const accountsRes = await fetch(
-          `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,access_token,category,tasks&access_token=${userAccessToken}`
+          `https://graph.facebook.com/v22.0/me/accounts?fields=id,name,access_token,category,tasks,instagram_business_account{id,username,name}&access_token=${userAccessToken}`
         );
         const accountsData = await accountsRes.json();
 
@@ -92,6 +93,7 @@ export async function GET(
           accountId = targetPage.id;
           clientName = targetPage.name;
           accessToken = targetPage.access_token || userAccessToken;
+          linkedIgAccount = targetPage.instagram_business_account || null;
         } else {
           // Fallback to user profile if no managed pages found
           const meRes = await fetch(`https://graph.facebook.com/v22.0/me?access_token=${userAccessToken}`);
@@ -293,6 +295,44 @@ export async function GET(
         const { error: insertErr } = await supabase.from('accounts').insert(insertPayload);
         if (insertErr) {
           console.error('[OAuth Callback Insert Error]:', insertErr);
+        }
+      }
+
+      // 2B. If Meta returned a linked Instagram account, auto-link it in 1-click!
+      if (linkedIgAccount?.id && platformKey === 'facebook') {
+        const igClientName = linkedIgAccount.username || linkedIgAccount.name || clientName;
+        try {
+          const { data: existingIg } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('client_name', igClientName)
+            .eq('platform', 'Instagram')
+            .maybeSingle();
+
+          const igPayload: any = {
+            client_name: igClientName,
+            platform: 'Instagram',
+            connection_type: 'oauth',
+            connection_status: 'Connected',
+            oauth_access_token: accessToken,
+            oauth_account_id: linkedIgAccount.id,
+            oauth_token_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          };
+          if (clientId) igPayload.client_id = clientId;
+
+          if (existingIg?.id) {
+            await supabase.from('accounts').update(igPayload).eq('id', existingIg.id);
+          } else {
+            const igAccId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-ig-${Date.now()}`;
+            await supabase.from('accounts').insert({
+              id: igAccId,
+              created_at: new Date().toISOString(),
+              ...igPayload,
+            });
+          }
+        } catch (igLinkErr) {
+          console.warn('[Auto-link IG warning]:', igLinkErr);
         }
       }
 

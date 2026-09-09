@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -126,6 +126,117 @@ function AccountsContent() {
           </button>
         </div>
       )}
+
+      {/* 1-Click Connect Cards (Meta & YouTube) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+        {/* Meta (Facebook + Instagram) */}
+        <div className="card" style={{
+          background: 'linear-gradient(135deg, rgba(37,99,235,0.06) 0%, rgba(124,58,237,0.06) 100%)',
+          border: '1.5px solid rgba(99,102,241,0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          padding: '1.25rem 1.5rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '46px',
+              height: '46px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #1877f2, #e1306c)',
+              color: '#ffffff',
+              flexShrink: 0,
+              boxShadow: '0 4px 12px rgba(225, 48, 108, 0.25)',
+            }}>
+              <Link2 size={24} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.2rem' }}>
+                Connect Meta (FB & Instagram)
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                1-Click link for Facebook Pages and Instagram accounts.
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="/api/oauth/facebook"
+            className="btn btn-primary"
+            style={{
+              padding: '0.5rem 1rem',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              gap: '0.45rem',
+              background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(37,99,235,0.25)',
+            }}
+          >
+            <Link2 size={14} />
+            <span>Connect Meta</span>
+          </a>
+        </div>
+
+        {/* YouTube Channel */}
+        <div className="card" style={{
+          background: 'linear-gradient(135deg, rgba(239,68,68,0.06) 0%, rgba(220,38,38,0.04) 100%)',
+          border: '1.5px solid rgba(239,68,68,0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+          padding: '1.25rem 1.5rem',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '46px',
+              height: '46px',
+              borderRadius: '12px',
+              background: '#ff0000',
+              color: '#ffffff',
+              flexShrink: 0,
+              boxShadow: '0 4px 12px rgba(255, 0, 0, 0.25)',
+            }}>
+              <YouTubeIcon size={24} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.2rem' }}>
+                Connect YouTube Channel
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+                Link your Google account to auto-publish videos to YouTube.
+              </p>
+            </div>
+          </div>
+
+          <a
+            href="/api/oauth/youtube"
+            className="btn btn-primary"
+            style={{
+              padding: '0.5rem 1rem',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              gap: '0.45rem',
+              background: '#ff0000',
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(239,68,68,0.25)',
+            }}
+          >
+            <Link2 size={14} />
+            <span>Connect YouTube</span>
+          </a>
+        </div>
+      </div>
 
       {/* Add Account Form */}
       {showAddForm && (
