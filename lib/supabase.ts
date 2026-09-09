@@ -95,9 +95,6 @@ export function mapPostToDb(post: Omit<Post, 'createdAt' | 'updatedAt'> & { crea
     scheduled_at: post.scheduledAt || null,
     status: post.status,
     published_at: post.publishedAt || null,
-    retry_count: post.retryCount ?? 0,
-    max_retries: post.maxRetries ?? 3,
-    last_error: post.lastError || null,
     ...(post.createdAt ? { created_at: post.createdAt } : {}),
     ...(post.updatedAt ? { updated_at: post.updatedAt } : {}),
   };
