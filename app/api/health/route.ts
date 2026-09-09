@@ -1,0 +1,13 @@
+import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  return NextResponse.json({
+    status: 'ok',
+    version: '6e111c2',
+    timestamp: new Date().toISOString(),
+    env: process.env.NODE_ENV,
+    deployed: true,
+  });
+}
