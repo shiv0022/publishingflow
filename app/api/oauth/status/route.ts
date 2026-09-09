@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCleanMetaCredentials } from '@/lib/oauthUrl';
+import { getCleanMetaCredentials, getCleanGoogleCredentials } from '@/lib/oauthUrl';
 
 /**
  * Server-side OAuth configuration check.
@@ -8,8 +8,9 @@ import { getCleanMetaCredentials } from '@/lib/oauthUrl';
  */
 export async function GET() {
   const metaCreds = getCleanMetaCredentials();
+  const googleCreds = getCleanGoogleCredentials();
   const hasMeta = Boolean(metaCreds.clientId && metaCreds.clientSecret);
-  const hasGoogle = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const hasGoogle = Boolean(googleCreds.clientId && googleCreds.clientSecret);
 
   return NextResponse.json({
     configured: {

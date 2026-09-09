@@ -1,6 +1,6 @@
 import { createServerSupabaseClient } from './supabaseServer';
 import { logAudit } from './auditLogger';
-import { getCleanMetaCredentials } from './oauthUrl';
+import { getCleanMetaCredentials, getCleanGoogleCredentials } from './oauthUrl';
 
 /**
  * Server-Side OAuth Token Manager with Automatic Refresh
@@ -58,8 +58,7 @@ export async function getValidAccessToken(accountId: string): Promise<{
 
   try {
     if (account.platform === 'YouTube') {
-      const clientId = process.env.GOOGLE_CLIENT_ID;
-      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const { clientId, clientSecret } = getCleanGoogleCredentials();
       const refreshToken = account.oauth_refresh_token;
 
       if (!clientId || !clientSecret) {

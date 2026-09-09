@@ -6,9 +6,11 @@ import { useApp } from '@/context/AppContext';
 import { Platform } from '@/types';
 import { AccountRecipientPicker } from '@/components/AccountRecipientPicker';
 import { MediaRatioHelper } from '@/components/MediaRatioHelper';
+import { SocialPreviewCard } from '@/components/SocialPreviewCard';
+import { InstagramIcon, FacebookIcon, YouTubeIcon } from '@/components/PlatformIcons';
 import {
   UploadCloud, X, Send, Calendar, FileImage, Film,
-  Plus, Trash2, Link, Check, Clock, AlertCircle, Sparkles
+  Plus, Trash2, Link, Check, Clock, AlertCircle, Sparkles, Link2
 } from 'lucide-react';
 
 function extractDriveId(url: string): string | null {
@@ -164,6 +166,15 @@ export default function CreatePostPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  const applyUrlInput = () => {
+    if (!urlInput.trim()) return;
+    const cleanUrl = urlInput.trim();
+    setUploadedUrl(cleanUrl);
+    setMediaPreview(cleanUrl);
+    const isVid = /\.(mp4|mov|webm|avi)(\?.*)?$/i.test(cleanUrl);
+    setMediaType(isVid ? 'video' : 'image');
+  };
+
   const resolveDriveLink = () => {
     const id = extractDriveId(driveInput.trim());
     if (!id) {
@@ -303,14 +314,89 @@ export default function CreatePostPage() {
 
   const totalPosts = selectedAccounts.size * (action === 'schedule' ? scheduleTimes.length : 1);
 
+  // Check connected platform status
+  const isYouTubeConnected = accounts.some(a => a.platform === 'YouTube' && a.connectionStatus === 'Connected');
+  const isMetaConnected = accounts.some(a => (a.platform === 'Facebook' || a.platform === 'Instagram') && a.connectionStatus === 'Connected');
+
+  // Preview account metadata
+  const primarySelectedAccount = accounts.find(a => selectedAccounts.has(a.id));
+  const previewClientName = primarySelectedAccount?.clientName || (isYouTubeConnected ? 'My YouTube Channel' : 'My Social Channel');
+  const previewPlatform = primarySelectedAccount?.platform || selectedPlatformsList[0] || 'Instagram';
+
   return (
-    <div className="main-content" style={{ maxWidth: '850px' }}>
+    <div className="main-content" style={{ maxWidth: '1350px' }}>
       <div className="page-header">
         <div>
-          <h1 className="page-title">Create Post</h1>
-          <p className="page-subtitle">Publish or schedule content across multiple platforms at once.</p>
+          <h1 className="page-title">Create & Schedule Post</h1>
+          <p className="page-subtitle">Publish verified media and captions across YouTube, Instagram, and Facebook simultaneously.</p>
         </div>
       </div>
+
+      {/* Quick 1-Click Connect Channel Bar (if YouTube or Meta not connected) */}
+      {(!isYouTubeConnected || !isMetaConnected) && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.05), rgba(239, 68, 68, 0.05))',
+          border: '1.5px solid rgba(99, 102, 241, 0.25)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
+              <Sparkles size={16} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                Connect Your Official Social Channels
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+              Link your channels in 1 click so PublishingFlow can publish automatically without manual work.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            {!isYouTubeConnected && (
+              <a
+                href="/api/oauth/youtube"
+                className="btn btn-primary"
+                style={{
+                  background: '#ff0000',
+                  border: 'none',
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 0.9rem',
+                  gap: '0.45rem',
+                  boxShadow: '0 4px 10px rgba(255, 0, 0, 0.25)'
+                }}
+              >
+                <YouTubeIcon size={16} />
+                <span>Connect YouTube Channel</span>
+              </a>
+            )}
+
+            {!isMetaConnected && (
+              <a
+                href="/api/oauth/facebook"
+                className="btn btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #1877f2, #e1306c)',
+                  border: 'none',
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 0.9rem',
+                  gap: '0.45rem',
+                  boxShadow: '0 4px 10px rgba(24, 119, 242, 0.25)'
+                }}
+              >
+                <FacebookIcon size={15} />
+                <span>Connect Meta (FB & IG)</span>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {submitError && (
         <div style={{
@@ -330,216 +416,228 @@ export default function CreatePostPage() {
         </div>
       )}
 
-      <div className="card">
-        {/* ======== 1. EMAIL-STYLE ACCOUNT RECIPIENT SELECTOR ======== */}
-        <div className="form-group">
-          <AccountRecipientPicker
-            accounts={accounts}
-            selectedAccountIds={selectedAccounts}
-            onToggleAccount={toggleAccount}
-            onSelectAllConnected={selectAllConnected}
-            onClearAll={clearAllAccounts}
-            onSelectPlatformOnly={selectPlatformOnly}
-          />
-        </div>
-
-        {/* ======== 2. MEDIA WITH ASPECT RATIO DETECTION & FIT TOOL ======== */}
-        <div className="form-group">
-          <label className="form-label">Media (Image or Video)</label>
-
-          <div className="media-tabs">
-            {[
-              { id: 'upload', icon: <UploadCloud size={14} />, label: 'Upload File' },
-              { id: 'url', icon: <Link size={14} />, label: 'Direct URL' },
-              { id: 'drive', icon: <Film size={14} />, label: 'Google Drive' },
-            ].map(t => (
-              <button key={t.id} type="button"
-                className={`media-tab ${mediaTab === t.id ? 'active' : ''}`}
-                onClick={() => { setMediaTab(t.id as typeof mediaTab); removeMedia(); }}>
-                {t.icon} {t.label}
-              </button>
-            ))}
-          </div>
-
-          <input type="file" ref={fileInputRef} accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFileChange} />
-
-          {/* Upload Dropzone */}
-          {mediaTab === 'upload' && !mediaPreview && (
-            <div className="media-dropzone" onClick={() => fileInputRef.current?.click()}>
-              <UploadCloud size={32} style={{ color: 'var(--text-dim)', margin: '0 auto 0.5rem' }} />
-              <p style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-main)' }}>Click to upload Image or Video</p>
-              <p style={{ fontSize: '0.75rem', color: 'var(--text-dim)', marginTop: '0.3rem' }}>JPG, PNG, MP4, MOV — automatically checks ratio compatibility</p>
+      <div className="create-layout-grid">
+        {/* Left Column: Form Composer */}
+        <div className="create-form-column">
+          <div className="card">
+            {/* ======== 1. EMAIL-STYLE ACCOUNT RECIPIENT SELECTOR ======== */}
+            <div className="form-group">
+              <AccountRecipientPicker
+                accounts={accounts}
+                selectedAccountIds={selectedAccounts}
+                onToggleAccount={toggleAccount}
+                onSelectAllConnected={selectAllConnected}
+                onClearAll={clearAllAccounts}
+                onSelectPlatformOnly={selectPlatformOnly}
+              />
             </div>
-          )}
 
-          {/* URL Tab */}
-          {mediaTab === 'url' && (
-            <div>
-              <div className="drive-link-box">
-                <Link size={16} style={{ color: 'var(--text-dim)', flexShrink: 0 }} />
-                <input type="url" placeholder="https://example.com/image.jpg or video.mp4"
-                  value={urlInput} onChange={e => { setUrlInput(e.target.value); setUploadedUrl(e.target.value); }} />
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <input type="radio" checked={mediaType === 'image'} onChange={() => setMediaType('image')} /> Image
-                </label>
-                <label style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                  <input type="radio" checked={mediaType === 'video'} onChange={() => setMediaType('video')} /> Video
-                </label>
-              </div>
-            </div>
-          )}
+            {/* ======== 2. MEDIA WITH ASPECT RATIO DETECTION & FIT TOOL ======== */}
+            <div className="form-group">
+              <label className="form-label">Media (Image or Video)</label>
 
-          {/* Google Drive Tab */}
-          {mediaTab === 'drive' && (
-            <div>
-              <div className="drive-link-box">
-                <Film size={16} style={{ color: '#34a853', flexShrink: 0 }} />
-                <input type="text" placeholder="Paste Google Drive link (file must be public)"
-                  value={driveInput} onChange={e => { setDriveInput(e.target.value); setDriveResolved(''); }} />
-                <button type="button" className="btn btn-primary"
-                  style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                  onClick={resolveDriveLink}>
-                  Use Link
-                </button>
+              <div className="media-tabs">
+                {[
+                  { id: 'upload', icon: <UploadCloud size={14} />, label: 'Upload File' },
+                  { id: 'url', icon: <Link size={14} />, label: 'Direct URL' },
+                  { id: 'drive', icon: <Film size={14} />, label: 'Google Drive' },
+                ].map(t => (
+                  <button key={t.id} type="button"
+                    className={`media-tab ${mediaTab === t.id ? 'active' : ''}`}
+                    onClick={() => { setMediaTab(t.id as typeof mediaTab); removeMedia(); }}>
+                    {t.icon} {t.label}
+                  </button>
+                ))}
               </div>
-              {driveResolved && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.4rem' }}>
-                  ✓ Drive link resolved. File must be set to &quot;Anyone with link can view&quot;.
+
+              {/* Upload Tab */}
+              {mediaTab === 'upload' && (
+                <div className="dropzone" onClick={() => fileInputRef.current?.click()}>
+                  <UploadCloud size={32} className="dropzone-icon" />
+                  <p className="dropzone-text">Click to upload image or video</p>
+                  <p className="dropzone-sub">Supports JPG, PNG, WEBP, MP4, MOV up to 500 MB</p>
+                  <input ref={fileInputRef} type="file" accept="image/*,video/*"
+                    onChange={handleFileChange} style={{ display: 'none' }} />
+                </div>
+              )}
+
+              {/* URL Tab */}
+              {mediaTab === 'url' && (
+                <div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input type="url" placeholder="https://example.com/image.jpg" className="form-input"
+                      value={urlInput} onChange={e => setUrlInput(e.target.value)} />
+                    <button type="button" className="btn btn-primary"
+                      style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                      onClick={applyUrlInput}>
+                      Use URL
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Google Drive Tab */}
+              {mediaTab === 'drive' && (
+                <div>
+                  <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <input type="url" placeholder="Paste Google Drive sharing link..." className="form-input"
+                      value={driveInput} onChange={e => { setDriveInput(e.target.value); setDriveResolved(''); }} />
+                    <button type="button" className="btn btn-primary"
+                      style={{ padding: '0.35rem 0.85rem', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                      onClick={resolveDriveLink}>
+                      Use Link
+                    </button>
+                  </div>
+                  {driveResolved && (
+                    <p style={{ fontSize: '0.75rem', color: 'var(--success)', marginTop: '0.4rem' }}>
+                      ✓ Drive link resolved. File must be set to &quot;Anyone with link can view&quot;.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Media Preview Box */}
+              {mediaPreview && (
+                <div className="media-preview-box">
+                  {mediaType === 'image' ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={mediaPreview} alt="Preview" />
+                  ) : (
+                    <video src={mediaPreview} controls />
+                  )}
+                  <button type="button" onClick={removeMedia} className="media-remove-btn" title="Remove">
+                    <X size={16} />
+                  </button>
+                </div>
+              )}
+
+              {/* Aspect Ratio Helper, Compatibility Warning & 1-Click Fit */}
+              {mediaPreview && (
+                <MediaRatioHelper
+                  mediaUrl={mediaPreview}
+                  mediaType={mediaType}
+                  selectedPlatforms={selectedPlatformsList}
+                  onMediaFitted={handleMediaFitted}
+                  originalFile={mediaFile}
+                />
+              )}
+
+              {mediaFile && (
+                <p className="form-helper" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.4rem' }}>
+                  {mediaType === 'video' ? <Film size={12} /> : <FileImage size={12} />}
+                  {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)
+                  {isUploading && <span style={{ color: 'var(--warning)' }}>— Uploading...</span>}
+                  {uploadedUrl && !isUploading && <span style={{ color: 'var(--success)' }}>— ✓ Ready</span>}
                 </p>
               )}
             </div>
-          )}
 
-          {/* Media Preview Box */}
-          {mediaPreview && (
-            <div className="media-preview-box">
-              {mediaType === 'image' ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={mediaPreview} alt="Preview" />
-              ) : (
-                <video src={mediaPreview} controls />
-              )}
-              <button type="button" onClick={removeMedia} className="media-remove-btn" title="Remove">
-                <X size={16} />
-              </button>
+            {/* ======== 3. TITLE ======== */}
+            <div className="form-group">
+              <label className="form-label">Post Title (Optional for Facebook / YouTube)</label>
+              <input type="text" placeholder="e.g. Summer Special Announcement" className="form-input"
+                value={title} onChange={e => setTitle(e.target.value)} />
             </div>
-          )}
 
-          {/* Aspect Ratio Helper, Compatibility Warning & 1-Click Fit */}
-          {mediaPreview && (
-            <MediaRatioHelper
-              mediaUrl={mediaPreview}
-              mediaType={mediaType}
-              selectedPlatforms={selectedPlatformsList}
-              onMediaFitted={handleMediaFitted}
-              originalFile={mediaFile}
-            />
-          )}
-
-          {mediaFile && (
-            <p className="form-helper" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginTop: '0.4rem' }}>
-              {mediaType === 'video' ? <Film size={12} /> : <FileImage size={12} />}
-              {mediaFile.name} ({(mediaFile.size / 1024 / 1024).toFixed(2)} MB)
-              {isUploading && <span style={{ color: 'var(--warning)' }}>— Uploading...</span>}
-              {uploadedUrl && !isUploading && <span style={{ color: 'var(--success)' }}>— ✓ Ready</span>}
-            </p>
-          )}
-        </div>
-
-        {/* ======== 3. TITLE ======== */}
-        <div className="form-group">
-          <label className="form-label">Post Title (Optional for Facebook / YouTube)</label>
-          <input type="text" placeholder="e.g. Summer Special Announcement" className="form-input"
-            value={title} onChange={e => setTitle(e.target.value)} />
-        </div>
-
-        {/* ======== 4. CAPTION ======== */}
-        <div className="form-group">
-          <label className="form-label">Caption & Hashtags</label>
-          <textarea placeholder="Write your caption, hashtags, and call to action..." className="form-textarea"
-            value={caption} onChange={e => setCaption(e.target.value)} rows={4} />
-        </div>
-
-        {/* ======== 5. DESCRIPTION / NOTES ======== */}
-        <div className="form-group">
-          <label className="form-label">Notes / YouTube Description</label>
-          <textarea placeholder="Internal notes or YouTube video description..." className="form-textarea"
-            value={description} onChange={e => setDescription(e.target.value)} rows={2} />
-        </div>
-
-        {/* ======== 6. SCHEDULE TIMES ======== */}
-        {action === 'schedule' && (
-          <div className="form-group">
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>Schedule Times</label>
-              <button type="button" className="btn btn-secondary"
-                style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', gap: '0.35rem' }}
-                onClick={addScheduleTime}>
-                <Plus size={13} /> Add Another Time
-              </button>
+            {/* ======== 4. CAPTION ======== */}
+            <div className="form-group">
+              <label className="form-label">Caption & Hashtags</label>
+              <textarea placeholder="Write your caption, hashtags, and call to action..." className="form-textarea"
+                value={caption} onChange={e => setCaption(e.target.value)} rows={4} />
             </div>
-            {scheduleTimes.map((t, i) => (
-              <div key={i} className="schedule-time-item">
-                <div className="schedule-time-num">{i + 1}</div>
-                <input type="datetime-local" className="form-input" style={{ flex: 1 }}
-                  value={t} onChange={e => updateScheduleTime(i, e.target.value)} required />
-                {scheduleTimes.length > 1 && (
-                  <button type="button" className="btn-icon-danger" onClick={() => removeScheduleTime(i)}>
-                    <Trash2 size={14} />
+
+            {/* ======== 5. DESCRIPTION / NOTES ======== */}
+            <div className="form-group">
+              <label className="form-label">Notes / YouTube Description</label>
+              <textarea placeholder="Internal notes or YouTube video description..." className="form-textarea"
+                value={description} onChange={e => setDescription(e.target.value)} rows={2} />
+            </div>
+
+            {/* ======== 6. SCHEDULE TIMES ======== */}
+            {action === 'schedule' && (
+              <div className="form-group">
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                  <label className="form-label" style={{ marginBottom: 0 }}>Schedule Times</label>
+                  <button type="button" className="btn btn-secondary"
+                    style={{ padding: '0.25rem 0.7rem', fontSize: '0.75rem', gap: '0.35rem' }}
+                    onClick={addScheduleTime}>
+                    <Plus size={13} /> Add Another Time
                   </button>
-                )}
+                </div>
+                {scheduleTimes.map((t, i) => (
+                  <div key={i} className="schedule-time-item">
+                    <div className="schedule-time-num">{i + 1}</div>
+                    <input type="datetime-local" className="form-input" style={{ flex: 1 }}
+                      value={t} onChange={e => updateScheduleTime(i, e.target.value)} required />
+                    {scheduleTimes.length > 1 && (
+                      <button type="button" className="btn-icon-danger" onClick={() => removeScheduleTime(i)}>
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <p className="form-helper">
+                  <Clock size={11} style={{ display: 'inline', marginRight: '0.3rem' }} />
+                  Will schedule {selectedAccounts.size * scheduleTimes.length} total post(s)
+                  ({selectedAccounts.size} account(s) × {scheduleTimes.length} time(s))
+                </p>
               </div>
-            ))}
-            <p className="form-helper">
-              <Clock size={11} style={{ display: 'inline', marginRight: '0.3rem' }} />
-              Will schedule {selectedAccounts.size * scheduleTimes.length} total post(s)
-              ({selectedAccounts.size} account(s) × {scheduleTimes.length} time(s))
-            </p>
+            )}
+
+            {/* ======== 7. ACTION BUTTONS ======== */}
+            <div className="action-buttons-row">
+              <button type="button" className="btn btn-secondary"
+                onClick={() => router.push('/status')}>
+                Cancel
+              </button>
+
+              <button type="button" className="btn btn-draft"
+                disabled={isSubmitting || isUploading}
+                onClick={() => { setAction('draft'); handleSubmit('draft'); }}>
+                <FileImage size={15} />
+                <span>Save Draft</span>
+              </button>
+
+              <button type="button" className={`btn ${action === 'schedule' ? 'btn-primary' : 'btn-schedule'}`}
+                disabled={isSubmitting || isUploading}
+                onClick={() => { setAction(action === 'schedule' ? 'draft' : 'schedule'); }}>
+                <Calendar size={15} />
+                <span>{action === 'schedule' ? 'Schedule Mode Active' : 'Schedule'}</span>
+              </button>
+
+              {action === 'schedule' ? (
+                <button type="button" className="btn btn-primary"
+                  disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
+                  onClick={() => handleSubmit('schedule')}>
+                  <Check size={15} />
+                  <span>
+                    {isSubmitting ? 'Scheduling...' : `Confirm Schedule (${selectedAccounts.size} account${selectedAccounts.size !== 1 ? 's' : ''})`}
+                  </span>
+                </button>
+              ) : (
+                <button type="button" className="btn btn-success"
+                  disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
+                  onClick={() => handleSubmit('publish')}>
+                  <Send size={15} />
+                  <span>
+                    {isSubmitting ? 'Publishing...' : `Publish Now (${selectedAccounts.size})`}
+                  </span>
+                </button>
+              )}
+            </div>
           </div>
-        )}
+        </div>
 
-        {/* ======== 7. ACTION BUTTONS ======== */}
-        <div className="action-buttons-row">
-          <button type="button" className="btn btn-secondary"
-            onClick={() => router.push('/status')}>
-            Cancel
-          </button>
-
-          <button type="button" className="btn btn-draft"
-            disabled={isSubmitting || isUploading}
-            onClick={() => { setAction('draft'); handleSubmit('draft'); }}>
-            <FileImage size={15} />
-            <span>Save Draft</span>
-          </button>
-
-          <button type="button" className={`btn ${action === 'schedule' ? 'btn-primary' : 'btn-schedule'}`}
-            disabled={isSubmitting || isUploading}
-            onClick={() => { setAction(action === 'schedule' ? 'draft' : 'schedule'); }}>
-            <Calendar size={15} />
-            <span>{action === 'schedule' ? 'Schedule Mode Active' : 'Schedule'}</span>
-          </button>
-
-          {action === 'schedule' ? (
-            <button type="button" className="btn btn-primary"
-              disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
-              onClick={() => handleSubmit('schedule')}>
-              <Check size={15} />
-              <span>
-                {isSubmitting ? 'Scheduling...' : `Confirm Schedule (${selectedAccounts.size} account${selectedAccounts.size !== 1 ? 's' : ''})`}
-              </span>
-            </button>
-          ) : (
-            <button type="button" className="btn btn-success"
-              disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
-              onClick={() => handleSubmit('publish')}>
-              <Send size={15} />
-              <span>
-                {isSubmitting ? 'Publishing...' : `Publish Now (${selectedAccounts.size})`}
-              </span>
-            </button>
-          )}
+        {/* Right Column: Interactive Live Social Feed Preview */}
+        <div className="create-preview-column">
+          <SocialPreviewCard
+            platform={previewPlatform}
+            clientName={previewClientName}
+            caption={caption}
+            title={title}
+            mediaUrl={mediaPreview || uploadedUrl}
+            mediaType={mediaType}
+          />
         </div>
       </div>
     </div>

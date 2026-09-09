@@ -177,4 +177,32 @@ export function buildFacebookOAuthUrl(clientId: string, redirectUri: string): st
   )}&scope=${encodeURIComponent(scopes)}&response_type=code`;
 }
 
+/**
+ * Resolves clean Google credentials with immediate disk fallback for hot reload.
+ */
+export function getCleanGoogleCredentials(): { clientId?: string; clientSecret?: string } {
+  let clientId = (process.env.GOOGLE_CLIENT_ID || '')?.trim().replace(/^["']|["']$/g, '');
+  let clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '')?.trim().replace(/^["']|["']$/g, '');
+
+  if (!clientId || clientId.includes('your-google')) {
+    try {
+      // Dynamic require to avoid bundler issues in edge runtimes
+      const fs = require('fs');
+      const path = require('path');
+      const envPath = path.join(process.cwd(), '.env.local');
+      if (fs.existsSync(envPath)) {
+        const text = fs.readFileSync(envPath, 'utf8');
+        const idMatch = text.match(/GOOGLE_CLIENT_ID\s*=\s*([^\r\n]+)/);
+        const secMatch = text.match(/GOOGLE_CLIENT_SECRET\s*=\s*([^\r\n]+)/);
+        if (idMatch && idMatch[1]) clientId = idMatch[1].trim().replace(/^["']|["']$/g, '');
+        if (secMatch && secMatch[1]) clientSecret = secMatch[1].trim().replace(/^["']|["']$/g, '');
+      }
+    } catch {
+      // safe catch
+    }
+  }
+
+  return { clientId, clientSecret };
+}
+
 

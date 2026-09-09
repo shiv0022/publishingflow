@@ -4,6 +4,7 @@ import {
   getInstagramOAuthRedirectUri,
   getYouTubeOAuthRedirectUri,
   getCleanMetaCredentials,
+  getCleanGoogleCredentials,
   buildFacebookOAuthUrl,
 } from '@/lib/oauthUrl';
 
@@ -64,8 +65,7 @@ export async function GET(
   }
 
   if (platformKey === 'youtube') {
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    const { clientId, clientSecret } = getCleanGoogleCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(

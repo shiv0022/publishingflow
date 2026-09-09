@@ -15,8 +15,6 @@ import {
   Inbox, 
   FileImage, 
   CheckCircle, 
-  Copy, 
-  Download, 
   Send, 
   Check, 
   X, 
@@ -24,8 +22,11 @@ import {
   RotateCw,
   History,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Sparkles,
+  Link2
 } from 'lucide-react';
+import { InstagramIcon, FacebookIcon, YouTubeIcon } from '@/components/PlatformIcons';
 
 const STATUS_FILTERS: { label: string; value: 'all' | PostStatus }[] = [
   { label: 'All', value: 'all' },
@@ -214,6 +215,9 @@ function StatusContent() {
     }
   };
 
+  const isYouTubeConnected = accounts.some(a => a.platform === 'YouTube' && a.connectionStatus === 'Connected');
+  const isMetaConnected = accounts.some(a => (a.platform === 'Facebook' || a.platform === 'Instagram') && a.connectionStatus === 'Connected');
+
   return (
     <div className="main-content">
       {/* Top Header */}
@@ -221,7 +225,7 @@ function StatusContent() {
         <div>
           <h1 className="page-title">Publishing Dashboard</h1>
           <p className="page-subtitle">
-            Connected accounts, scheduling queue, real-time publishing, and audit trail.
+            Connected channels, scheduling queue, real-time publishing, and audit trail.
           </p>
         </div>
 
@@ -253,6 +257,72 @@ function StatusContent() {
           </Link>
         </div>
       </div>
+
+      {/* 1-Click Connect Social Channels banner if either is missing */}
+      {(!isYouTubeConnected || !isMetaConnected) && (
+        <div style={{
+          background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.05), rgba(239, 68, 68, 0.05))',
+          border: '1.5px solid rgba(99, 102, 241, 0.25)',
+          borderRadius: 'var(--radius-lg)',
+          padding: '1rem 1.25rem',
+          marginBottom: '1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '1rem',
+        }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.2rem' }}>
+              <Sparkles size={16} style={{ color: 'var(--primary)' }} />
+              <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                Connect Social Channels
+              </span>
+            </div>
+            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>
+              Link your channels in 1 click to enable direct automatic publishing.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap' }}>
+            {!isYouTubeConnected && (
+              <a
+                href="/api/oauth/youtube"
+                className="btn btn-primary"
+                style={{
+                  background: '#ff0000',
+                  border: 'none',
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 0.9rem',
+                  gap: '0.45rem',
+                  boxShadow: '0 4px 10px rgba(255, 0, 0, 0.25)'
+                }}
+              >
+                <YouTubeIcon size={16} />
+                <span>Connect YouTube Channel</span>
+              </a>
+            )}
+
+            {!isMetaConnected && (
+              <a
+                href="/api/oauth/facebook"
+                className="btn btn-primary"
+                style={{
+                  background: 'linear-gradient(135deg, #1877f2, #e1306c)',
+                  border: 'none',
+                  fontSize: '0.82rem',
+                  padding: '0.5rem 0.9rem',
+                  gap: '0.45rem',
+                  boxShadow: '0 4px 10px rgba(24, 119, 242, 0.25)'
+                }}
+              >
+                <FacebookIcon size={15} />
+                <span>Connect Meta (FB & IG)</span>
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Scheduler feedback notification */}
       {schedulerMessage && (
@@ -498,52 +568,8 @@ function StatusContent() {
                       </div>
                     )}
 
-                    {/* Action Bar (Manual Mode vs True OAuth Publish) */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
-                      {/* 1. Copy Caption & Title */}
-                      <button
-                        onClick={() => handleCopyContent(post)}
-                        className="btn-action-sm"
-                        title="Copy post title & caption to clipboard for manual posting"
-                      >
-                        {copiedPostId === post.id ? (
-                          <>
-                            <Check size={12} color="#059669" />
-                            <span style={{ color: '#059669' }}>Copied!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} />
-                            <span>Copy Text</span>
-                          </>
-                        )}
-                      </button>
-
-                      {/* 2. Download Media (if attached) */}
-                      {post.mediaUrl && (
-                        <button
-                          onClick={() => handleDownloadMedia(post.mediaUrl, post.mediaName)}
-                          className="btn-action-sm"
-                          title="Download or view attached media"
-                        >
-                          <Download size={12} />
-                          <span>Download Media</span>
-                        </button>
-                      )}
-
-                      {/* 3. Mark as Posted (for manual workflow) */}
-                      {post.status !== 'posted' && (
-                        <button
-                          onClick={() => handleMarkAsPosted(post.id)}
-                          className="btn-action-sm btn-mark-posted"
-                          title="Mark this post as posted after manual publishing"
-                        >
-                          <CheckCircle size={12} />
-                          <span>Mark as Posted</span>
-                        </button>
-                      )}
-
-                      {/* 4. Real Publish / Retry (Enabled when account is connected via OAuth) */}
+                    {/* Action Bar (Direct 1-Click Publishing & Status) */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
                       {isOauthConnected ? (
                         <button
                           onClick={() => handleRealPublish(post)}
@@ -557,15 +583,21 @@ function StatusContent() {
                               ? 'Publishing...' 
                               : post.status === 'failed' 
                               ? 'Retry Publish' 
-                              : `Publish to ${post.platform}`}
+                              : post.status === 'posted'
+                              ? 'Published'
+                              : `Publish Now to ${post.platform}`}
                           </span>
                         </button>
                       ) : (
-                        matchedAccount?.connectionType === 'oauth' && (
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontStyle: 'italic' }}>
-                            (Connect OAuth in Accounts tab to enable direct publishing)
-                          </span>
-                        )
+                        <a
+                          href={post.platform === 'YouTube' ? '/api/oauth/youtube' : '/api/oauth/facebook'}
+                          className="btn-action-sm btn-publish-real"
+                          style={{ textDecoration: 'none' }}
+                          title={`Connect ${post.platform} to enable direct publishing`}
+                        >
+                          <Link2 size={12} />
+                          <span>Connect {post.platform}</span>
+                        </a>
                       )}
                     </div>
                   </div>

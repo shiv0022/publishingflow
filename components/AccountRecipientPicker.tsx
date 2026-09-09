@@ -306,9 +306,38 @@ export function AccountRecipientPicker({
           }}
         >
           {filteredAccounts.length === 0 ? (
-            <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
-              No accounts match &quot;{searchQuery}&quot;.
-            </div>
+            accounts.length === 0 ? (
+              <div style={{ padding: '1.25rem 1rem', textAlign: 'center' }}>
+                <p style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '0.25rem' }}>
+                  No Channels Connected Yet
+                </p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '0.85rem' }}>
+                  Link your YouTube or Meta account in 1 click:
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxWidth: '280px', margin: '0 auto' }}>
+                  <a
+                    href="/api/oauth/youtube"
+                    className="btn btn-primary"
+                    style={{ background: '#ff0000', border: 'none', fontSize: '0.8rem', padding: '0.45rem 0.85rem', gap: '0.5rem' }}
+                  >
+                    <YouTubeIcon size={16} />
+                    <span>Connect YouTube Channel</span>
+                  </a>
+                  <a
+                    href="/api/oauth/facebook"
+                    className="btn btn-primary"
+                    style={{ background: 'linear-gradient(135deg, #1877f2, #e1306c)', border: 'none', fontSize: '0.8rem', padding: '0.45rem 0.85rem', gap: '0.5rem' }}
+                  >
+                    <FacebookIcon size={15} />
+                    <span>Connect Meta (FB & IG)</span>
+                  </a>
+                </div>
+              </div>
+            ) : (
+              <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.82rem' }}>
+                No accounts match &quot;{searchQuery}&quot;.
+              </div>
+            )
           ) : (
             filteredAccounts.map((acc) => {
               const isSelected = selectedAccountIds.has(acc.id);
