@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
  * The canonical production base URL for PublishingFlow.
  * Guaranteed to NEVER have a trailing slash.
  */
-export const CANONICAL_APP_BASE_URL = 'https://publishingflow-rc68.vercel.app';
+export const CANONICAL_APP_BASE_URL = 'https://publishingflow-rc85.vercel.app';
 
 /**
  * Deprecated old Consumer App ID.
@@ -15,35 +15,27 @@ export const DEPRECATED_META_APP_ID = '1077484934693230';
  * Verified Facebook / Meta Business App ID for PublishingFlow.
  */
 export const VERIFIED_META_APP_ID = '1656696732464075';
-
-/**
- * Server-side verified fallback secret for App ID 1656696732464075.
- */
 export const VERIFIED_META_APP_SECRET = 'b483be922e7f2a603902364c434ae594';
 
 /**
  * Returns the sanitized base URL of the application.
- * 
- * Strict sanitization guarantees:
- * 1. In production, always strictly returns CANONICAL_APP_BASE_URL.
- * 2. In development, returns localhost origin without trailing slash.
- * 3. Never allows trailing slashes or subpaths to leak into OAuth redirects.
+ * Dynamically uses the current request origin so rc85, custom domains, and localhost work seamlessly.
  */
 export function getAppBaseUrl(request?: NextRequest): string {
-  // If in production environment, always enforce canonical production URL
-  if (process.env.NODE_ENV === 'production') {
-    return CANONICAL_APP_BASE_URL;
+  if (request) {
+    const origin = request.nextUrl.origin.replace(/\/+$/, '');
+    if (origin && !origin.includes('undefined')) {
+      return origin;
+    }
   }
 
   let envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/^["']|["']$/g, '');
 
   if (envUrl) {
-    // Aggressively strip any accidental callback paths or subpaths
     envUrl = envUrl.replace(/\/api\/oauth.*$/i, '').replace(/\/+$/, '');
 
     try {
       const parsed = new URL(envUrl.startsWith('http') ? envUrl : `https://${envUrl}`);
-      // parsed.origin extracts strictly origin (no trailing slash)
       return parsed.origin;
     } catch {
       const match = envUrl.match(/^(https?:\/\/[^\/\s]+)/i);
@@ -53,20 +45,11 @@ export function getAppBaseUrl(request?: NextRequest): string {
     }
   }
 
-  if (request) {
-    const origin = request.nextUrl.origin.replace(/\/+$/, '');
-    if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
-      return origin;
-    }
-  }
-
   return CANONICAL_APP_BASE_URL;
 }
 
 /**
  * Distinct, isolated callback URL for Facebook OAuth.
- * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/facebook/callback
- * Guaranteed to never have a trailing slash or localhost in production.
  */
 export function getFacebookOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -75,7 +58,6 @@ export function getFacebookOAuthRedirectUri(request?: NextRequest): string {
 
 /**
  * Distinct, isolated callback URL for Instagram OAuth.
- * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/instagram/callback
  */
 export function getInstagramOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -84,7 +66,6 @@ export function getInstagramOAuthRedirectUri(request?: NextRequest): string {
 
 /**
  * Distinct, isolated callback URL for YouTube OAuth.
- * Evaluates EXACTLY to: https://publishingflow-rc68.vercel.app/api/oauth/youtube/callback
  */
 export function getYouTubeOAuthRedirectUri(request?: NextRequest): string {
   const base = getAppBaseUrl(request);
@@ -106,11 +87,6 @@ export function getOAuthRedirectUri(platform: string, request?: NextRequest): st
 
 /**
  * Resolves clean Meta credentials (App ID and Secret).
- * 
- * Guarantees:
- * 1. Automatically upgrades from deprecated Consumer App ID (1077484934693230) to Business App ID (1656696732464075).
- * 2. Strips any surrounding quotes, whitespace, or accidental 'your-' prefixes.
- * 3. App Secret is strictly server-side and never leaked.
  */
 export function getCleanMetaCredentials(): { clientId: string; clientSecret?: string } {
   const rawId = (
@@ -141,12 +117,7 @@ export function getCleanMetaCredentials(): { clientId: string; clientSecret?: st
 }
 
 /**
- * Verified permissions for Facebook Page connection and content publishing:
- * - pages_show_list: Required to list Facebook Pages at /me/accounts
- * - pages_manage_posts: Required to publish posts and photos to Pages at /{page-id}/feed and /{page-id}/photos
- * - public_profile: Basic profile verification
- * 
- * Note: pages_read_engagement is removed as PublishingFlow only connects Pages and publishes posts.
+ * Verified permissions for Facebook Page connection and content publishing.
  */
 export const DEFAULT_FACEBOOK_SCOPES = 'public_profile,pages_show_list,pages_manage_posts';
 
@@ -160,7 +131,6 @@ export function getFacebookScopes(): string {
 
 /**
  * Builds the official Meta Facebook OAuth authorization dialog URL.
- * Supports both standard scope-based OAuth and Facebook Login for Business (config_id).
  */
 export function buildFacebookOAuthUrl(clientId: string, redirectUri: string): string {
   const configId = (process.env.META_CONFIG_ID || process.env.FACEBOOK_CONFIG_ID)?.trim().replace(/^["']|["']$/g, '');
@@ -178,15 +148,14 @@ export function buildFacebookOAuthUrl(clientId: string, redirectUri: string): st
 }
 
 /**
- * Resolves clean Google credentials with immediate disk fallback for hot reload.
+ * Resolves clean Google credentials with immediate disk fallback for local development.
  */
 export function getCleanGoogleCredentials(): { clientId?: string; clientSecret?: string } {
   let clientId = (process.env.GOOGLE_CLIENT_ID || '')?.trim().replace(/^["']|["']$/g, '');
   let clientSecret = (process.env.GOOGLE_CLIENT_SECRET || '')?.trim().replace(/^["']|["']$/g, '');
 
-  if (!clientId || clientId.includes('your-google')) {
+  if (!clientId || !clientSecret || clientId.includes('your-google')) {
     try {
-      // Dynamic require to avoid bundler issues in edge runtimes
       const fs = require('fs');
       const path = require('path');
       const envPath = path.join(process.cwd(), '.env.local');
@@ -204,5 +173,3 @@ export function getCleanGoogleCredentials(): { clientId?: string; clientSecret?:
 
   return { clientId, clientSecret };
 }
-
-

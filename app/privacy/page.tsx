@@ -52,7 +52,7 @@ export default function PrivacyPolicyPage() {
         <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid rgba(255, 255, 255, 0.2)', fontSize: '0.8rem', opacity: 0.85, display: 'flex', flexWrap: 'wrap', gap: '1.5rem' }}>
           <span><strong>Effective Date:</strong> January 1, 2025</span>
           <span><strong>Last Updated:</strong> March 2026</span>
-          <span><strong>App URL:</strong> https://publishingflow-rc68.vercel.app</span>
+          <span><strong>App URL:</strong> https://publishingflow-rc85.vercel.app</span>
         </div>
       </header>
 
@@ -94,7 +94,7 @@ export default function PrivacyPolicyPage() {
             Introduction &amp; Scope
           </h2>
           <p>
-            This Privacy Policy applies to <strong>PublishingFlow</strong> (accessible at <a href="https://publishingflow-rc68.vercel.app" target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>https://publishingflow-rc68.vercel.app</a>), referred to herein as &ldquo;PublishingFlow&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;.
+            This Privacy Policy applies to <strong>PublishingFlow</strong> (accessible at <a href="https://publishingflow-rc85.vercel.app" target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>https://publishingflow-rc85.vercel.app</a>), referred to herein as &ldquo;PublishingFlow&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;.
           </p>
           <p style={{ marginTop: '0.75rem' }}>
             PublishingFlow is a content scheduling and cross-platform publishing tool designed to help creators, businesses, and publishers draft, schedule, and automate posts to supported platforms including <strong>Facebook Pages</strong>, <strong>Instagram Professional (Business/Creator) Accounts</strong>, and <strong>YouTube</strong>.
@@ -245,7 +245,7 @@ export default function PrivacyPolicyPage() {
               <span>Contact Email: privacy@publishingflow.com</span>
             </div>
             <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-              Application: PublishingFlow (https://publishingflow-rc68.vercel.app)
+              Application: PublishingFlow (https://publishingflow-rc85.vercel.app)
             </div>
           </div>
         </article>
