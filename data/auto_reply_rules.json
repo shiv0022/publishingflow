@@ -1,0 +1,22 @@
+[
+  {
+    "id": "035c97bb-7beb-47e7-9531-7a259b4c842d",
+    "platform": "Instagram",
+    "keyword": "INFO",
+    "dmMessage": "tests",
+    "commentReply": "test",
+    "isActive": true,
+    "triggerCount": 0,
+    "createdAt": "2026-09-13T13:51:12.181Z"
+  },
+  {
+    "id": "default-rule-link",
+    "platform": "All",
+    "keyword": "LINK",
+    "dmMessage": "Hey! 👋 Thanks for asking. Here is the link you requested: https://publishingflow-rc85.vercel.app",
+    "commentReply": "Sent you a DM with the link! Check your inbox 🚀",
+    "isActive": true,
+    "triggerCount": 0,
+    "createdAt": "2026-09-13T13:37:53.931Z"
+  }
+]

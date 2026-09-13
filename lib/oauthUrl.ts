@@ -117,7 +117,7 @@ export function getCleanMetaCredentials(): { clientId: string; clientSecret?: st
 }
 
 /**
- * Verified permissions for Facebook Page connection and content publishing.
+ * Verified permissions for Facebook Page connection, content publishing, and Auto-Reply.
  */
 export const DEFAULT_FACEBOOK_SCOPES = 'public_profile,pages_show_list,pages_manage_posts';
 

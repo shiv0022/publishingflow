@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AppProvider } from '@/context/AppContext';
-import { AppShell } from '@/components/AppShell';
+import { SimpleNav } from '@/components/SimpleNav';
 
 export const metadata: Metadata = {
-  title: 'PublishingFlow — Social Media Management',
-  description: 'Professional social media publishing for Instagram, Facebook, and YouTube',
+  title: 'PublishingFlow — Social Media Publishing',
+  description: 'Simple social media publishing for Facebook, Instagram, and YouTube',
 };
 
 export default function RootLayout({
@@ -18,17 +18,15 @@ export default function RootLayout({
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
       </head>
       <body>
         <AppProvider>
-          <AppShell>
-            {children}
-          </AppShell>
+          <SimpleNav />
+          {children}
         </AppProvider>
       </body>
     </html>
   );
 }
-

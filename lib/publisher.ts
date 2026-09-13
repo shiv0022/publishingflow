@@ -232,6 +232,64 @@ export async function executePublishPost(postId: string): Promise<PublishResult>
       externalPostId = publishData.id;
     }
     // -------------------------------------------------------------
+    // THREADS PUBLISHING (Meta Threads API)
+    // -------------------------------------------------------------
+    else if (account.platform === 'Threads') {
+      const threadsUserId = oauthAccountId || 'me';
+
+      // Step A: Create Threads Container (Text, Image, or Video)
+      const threadsCreateUrl = `https://graph.threads.net/v1.0/${threadsUserId}/threads`;
+      const threadsPayload: Record<string, any> = {
+        text: messageContent || post.title || '',
+        access_token: accessToken,
+      };
+
+      if (hasMedia) {
+        if (isVideo) {
+          threadsPayload.media_type = 'VIDEO';
+          threadsPayload.video_url = post.media_url;
+        } else {
+          threadsPayload.media_type = 'IMAGE';
+          threadsPayload.image_url = post.media_url;
+        }
+      } else {
+        threadsPayload.media_type = 'TEXT';
+      }
+
+      const createRes = await fetch(threadsCreateUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(threadsPayload),
+      });
+      const createData = await createRes.json();
+
+      if (!createRes.ok || createData.error) {
+        handleMetaApiError(createData.error);
+      }
+
+      const creationId = createData.id;
+
+      // Wait a moment for container processing
+      await new Promise((resolve) => setTimeout(resolve, isVideo ? 5000 : 2500));
+
+      // Step B: Publish Threads Container
+      const publishRes = await fetch(`https://graph.threads.net/v1.0/${threadsUserId}/threads_publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          creation_id: creationId,
+          access_token: accessToken,
+        }),
+      });
+      const publishData = await publishRes.json();
+
+      if (!publishRes.ok || publishData.error) {
+        handleMetaApiError(publishData.error);
+      }
+
+      externalPostId = publishData.id;
+    }
+    // -------------------------------------------------------------
     // YOUTUBE PUBLISHING
     // -------------------------------------------------------------
     else if (account.platform === 'YouTube') {

@@ -1,10 +1,21 @@
-export type Platform = 'Instagram' | 'Facebook' | 'YouTube';
+export type Platform = 'Instagram' | 'Facebook' | 'Threads' | 'YouTube';
 
 export type ConnectionStatus = 'Connected' | 'Disconnected' | 'Pending';
 
 export type ConnectionType = 'manual' | 'mock' | 'oauth';
 
 export type PostStatus = 'draft' | 'scheduled' | 'posted' | 'failed';
+
+export interface AutoReplyRule {
+  id: string;
+  platform: 'Instagram' | 'Facebook' | 'Threads' | 'All';
+  keyword: string;
+  dmMessage: string;
+  commentReply?: string;
+  isActive: boolean;
+  triggerCount: number;
+  createdAt: string;
+}
 
 export interface Client {
   id: string;

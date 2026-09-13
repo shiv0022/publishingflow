@@ -31,7 +31,7 @@ export async function GET(
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/accounts?error=oauth_not_configured&platform=meta', request.url)
+        new URL('/profile?error=oauth_not_configured&platform=meta', request.url)
       );
     }
 
@@ -50,7 +50,7 @@ export async function GET(
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/accounts?error=oauth_not_configured&platform=instagram', request.url)
+        new URL('/profile?error=oauth_not_configured&platform=instagram', request.url)
       );
     }
 
@@ -64,12 +64,31 @@ export async function GET(
     return NextResponse.redirect(authUrl);
   }
 
+  if (platformKey === 'threads') {
+    const { clientId, clientSecret } = getCleanMetaCredentials();
+
+    if (!clientId || !clientSecret) {
+      return NextResponse.redirect(
+        new URL('/profile?error=oauth_not_configured&platform=threads', request.url)
+      );
+    }
+
+    const redirectUri = `${request.nextUrl.origin}/api/oauth/threads/callback`;
+    const scopes = 'threads_basic,threads_content_publish';
+
+    const authUrl = `https://threads.net/oauth/authorize?client_id=${clientId}&app_id=${clientId}&redirect_uri=${encodeURIComponent(
+      redirectUri
+    )}&scope=${encodeURIComponent(scopes)}&response_type=code${stateQuery}`;
+
+    return NextResponse.redirect(authUrl);
+  }
+
   if (platformKey === 'youtube') {
     const { clientId, clientSecret } = getCleanGoogleCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/accounts?error=oauth_not_configured&platform=youtube', request.url)
+        new URL('/profile?error=oauth_not_configured&platform=youtube', request.url)
       );
     }
 
@@ -83,5 +102,5 @@ export async function GET(
     return NextResponse.redirect(authUrl);
   }
 
-  return NextResponse.redirect(new URL('/accounts', request.url));
+  return NextResponse.redirect(new URL('/profile', request.url));
 }

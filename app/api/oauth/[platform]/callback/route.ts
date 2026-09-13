@@ -24,7 +24,7 @@ export async function GET(
 
   if (error || !code) {
     return NextResponse.redirect(
-      new URL(`/accounts?error=oauth_denied&platform=${platformKey}`, request.url)
+      new URL(`/profile?error=oauth_denied&platform=${platformKey}`, request.url)
     );
   }
 
@@ -43,7 +43,7 @@ export async function GET(
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(
-          new URL(`/accounts?error=oauth_not_configured&platform=${platformKey}`, request.url)
+          new URL(`/profile?error=oauth_not_configured&platform=${platformKey}`, request.url)
         );
       }
 
@@ -158,7 +158,7 @@ export async function GET(
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(
-          new URL(`/accounts?error=oauth_not_configured&platform=youtube`, request.url)
+          new URL(`/profile?error=oauth_not_configured&platform=youtube`, request.url)
         );
       }
 
@@ -199,10 +199,69 @@ export async function GET(
       const firstChannel = channelData.items?.[0];
       accountId = firstChannel?.id || `yt-${Date.now()}`;
       clientName = firstChannel?.snippet?.title || 'YouTube Channel';
+    } else if (platformKey === 'threads') {
+      const { clientId, clientSecret } = getCleanMetaCredentials();
+
+      if (!clientId || !clientSecret) {
+        return NextResponse.redirect(
+          new URL(`/profile?error=oauth_not_configured&platform=threads`, request.url)
+        );
+      }
+
+      // 1. Exchange authorization code for short-lived access token
+      const tokenRes = await fetch('https://graph.threads.net/oauth/access_token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: 'authorization_code',
+          redirect_uri: redirectUri,
+          code,
+        }),
+      });
+      const tokenData = await tokenRes.json();
+
+      if (!tokenRes.ok || !tokenData.access_token) {
+        throw new Error(tokenData.error_message || tokenData.error?.message || 'Failed to exchange Threads token');
+      }
+
+      let userAccessToken = tokenData.access_token;
+      accountId = String(tokenData.user_id || `threads-${Date.now()}`);
+
+      // 2. Exchange for 60-day long-lived access token
+      try {
+        const longLivedRes = await fetch(
+          `https://graph.threads.net/access_token?grant_type=th_exchange_token&client_secret=${clientSecret}&access_token=${userAccessToken}`
+        );
+        const longLivedData = await longLivedRes.json();
+        if (longLivedData.access_token) {
+          userAccessToken = longLivedData.access_token;
+          expiresAt = new Date(Date.now() + (longLivedData.expires_in || 5184000) * 1000).toISOString();
+        }
+      } catch (e) {
+        console.warn('Threads long lived exchange warning:', e);
+      }
+
+      accessToken = userAccessToken;
+
+      // 3. Fetch Threads Profile details
+      try {
+        const meRes = await fetch(`https://graph.threads.net/v1.0/me?fields=id,username,name&access_token=${accessToken}`);
+        const meData = await meRes.json();
+        if (meData.username) {
+          clientName = meData.username;
+          accountId = meData.id || accountId;
+        } else {
+          clientName = 'Threads User';
+        }
+      } catch {
+        clientName = 'Threads Account';
+      }
     }
 
     const supabase = createServerSupabaseClient();
-    const formattedPlatform = platformKey === 'instagram' ? 'Instagram' : platformKey === 'facebook' ? 'Facebook' : 'YouTube';
+    const formattedPlatform = platformKey === 'instagram' ? 'Instagram' : platformKey === 'facebook' ? 'Facebook' : platformKey === 'threads' ? 'Threads' : 'YouTube';
 
     if (supabase) {
       // 1. Normalize client into clients table
@@ -333,6 +392,42 @@ export async function GET(
         } catch (igLinkErr) {
           console.warn('[Auto-link IG warning]:', igLinkErr);
         }
+
+        // 2C. Also auto-link Threads under the same Meta OAuth identity!
+        try {
+          const threadsClientName = linkedIgAccount.username || linkedIgAccount.name || clientName;
+          const { data: existingThreads } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('client_name', threadsClientName)
+            .eq('platform', 'Threads')
+            .maybeSingle();
+
+          const threadsPayload: any = {
+            client_name: threadsClientName,
+            platform: 'Threads',
+            connection_type: 'oauth',
+            connection_status: 'Connected',
+            oauth_access_token: accessToken,
+            oauth_account_id: linkedIgAccount.id,
+            oauth_token_expires_at: expiresAt,
+            updated_at: new Date().toISOString(),
+          };
+          if (clientId) threadsPayload.client_id = clientId;
+
+          if (existingThreads?.id) {
+            await supabase.from('accounts').update(threadsPayload).eq('id', existingThreads.id);
+          } else {
+            const threadsAccId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-threads-${Date.now()}`;
+            await supabase.from('accounts').insert({
+              id: threadsAccId,
+              created_at: new Date().toISOString(),
+              ...threadsPayload,
+            });
+          }
+        } catch (threadsLinkErr) {
+          console.warn('[Auto-link Threads warning]:', threadsLinkErr);
+        }
       }
 
       // 3. Log to audit trail
@@ -352,12 +447,12 @@ export async function GET(
     }
 
     return NextResponse.redirect(
-      new URL(`/accounts?connected=true&platform=${platformKey}&name=${encodeURIComponent(clientName)}`, request.url)
+      new URL(`/profile?connected=true&platform=${platformKey}&name=${encodeURIComponent(clientName)}`, request.url)
     );
   } catch (err: any) {
     console.error('OAuth Callback Exchange Error:', err);
     return NextResponse.redirect(
-      new URL(`/accounts?error=oauth_exchange_failed&platform=${platformKey}&message=${encodeURIComponent(err.message || '')}`, request.url)
+      new URL(`/profile?error=oauth_exchange_failed&platform=${platformKey}&message=${encodeURIComponent(err.message || '')}`, request.url)
     );
   }
 }
