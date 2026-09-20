@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
-import { Share2, ArrowRight, Lock, User, UserPlus, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Share2, ArrowRight, Lock, User, UserPlus, LogIn, AlertCircle, CheckCircle2, Mail } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,12 +14,12 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
 
   // Login form state
-  const [loginUsername, setLoginUsername] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
   // Register form state
   const [regName, setRegName] = useState('');
-  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
 
   const [loading, setLoading] = useState(false);
@@ -37,8 +37,8 @@ export default function LoginPage() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!loginUsername.trim() || !loginPassword) {
-      setErrorMsg('Please enter both username and password.');
+    if (!loginEmail.trim() || !loginPassword) {
+      setErrorMsg('Please enter both email address and password.');
       return;
     }
 
@@ -48,7 +48,7 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: loginUsername.trim(),
+          username: loginEmail.trim(),
           password: loginPassword,
         }),
       });
@@ -72,7 +72,7 @@ export default function LoginPage() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!regName.trim() || !regUsername.trim() || !regPassword) {
+    if (!regName.trim() || !regEmail.trim() || !regPassword) {
       setErrorMsg('All fields are required.');
       return;
     }
@@ -84,7 +84,7 @@ export default function LoginPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: regName.trim(),
-          username: regUsername.trim(),
+          email: regEmail.trim(),
           password: regPassword,
         }),
       });
@@ -263,16 +263,16 @@ export default function LoginPage() {
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
-                Username
+                Email Address
               </label>
               <div style={{ position: 'relative' }}>
-                <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <Mail size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. rachit"
-                  value={loginUsername}
-                  onChange={(e) => setLoginUsername(e.target.value)}
+                  placeholder="name@example.com or username"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
                   style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
                   required
                 />
@@ -314,29 +314,32 @@ export default function LoginPage() {
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
                 Your Full Name
               </label>
-              <input
-                type="text"
-                className="input"
-                placeholder="e.g. Rachit Chauhan"
-                value={regName}
-                onChange={(e) => setRegName(e.target.value)}
-                style={{ fontSize: '0.92rem' }}
-                required
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
-                Choose Username
-              </label>
               <div style={{ position: 'relative' }}>
                 <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
                   type="text"
                   className="input"
-                  placeholder="e.g. john_doe"
-                  value={regUsername}
-                  onChange={(e) => setRegUsername(e.target.value)}
+                  placeholder="e.g. Rachit Chauhan"
+                  value={regName}
+                  onChange={(e) => setRegName(e.target.value)}
+                  style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Your Email Address
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Mail size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="email"
+                  className="input"
+                  placeholder="e.g. you@gmail.com"
+                  value={regEmail}
+                  onChange={(e) => setRegEmail(e.target.value)}
                   style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
                   required
                 />

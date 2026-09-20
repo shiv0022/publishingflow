@@ -70,14 +70,13 @@ export function getUserFilePath(userId: string): string {
 }
 
 /**
- * Register a user in Supabase Auth (with local fallback)
+ * Register a user in Supabase Auth (with real user email)
  */
-export async function registerUser(data: { username: string; name: string; password: string }): Promise<{
+export async function registerUser(data: { email?: string; username?: string; name: string; password: string }): Promise<{
   success: boolean;
-  user?: { id: string; username: string; name: string; membershipTier?: string };
+  user?: { id: string; username: string; name: string; email?: string; membershipTier?: string };
   error?: string;
 }> {
-  const cleanUsername = data.username.trim().toLowerCase();
   const cleanName = data.name.trim();
   const password = data.password;
 
@@ -85,21 +84,35 @@ export async function registerUser(data: { username: string; name: string; passw
     return { success: false, error: 'Password must be at least 4 characters.' };
   }
 
-  const email = formatEmailForUsername(cleanUsername);
+  // Use the actual email provided by the user
+  let email = (data.email || '').trim().toLowerCase();
+  let cleanUsername = (data.username || '').trim().toLowerCase();
+
+  if (!email && cleanUsername.includes('@')) {
+    email = cleanUsername;
+    cleanUsername = email.split('@')[0];
+  } else if (!email) {
+    email = formatEmailForUsername(cleanUsername || cleanName);
+  }
+
+  if (!cleanUsername) {
+    cleanUsername = email.split('@')[0];
+  }
+
   const supabase = createServerSupabaseClient();
 
   if (supabase) {
     try {
-      // 1. Check if user already exists
+      // 1. Check if user already exists with this email
       const { data: userList } = await supabase.auth.admin.listUsers();
       const existing = userList?.users?.find(
-        u => u.email === email || u.user_metadata?.username === cleanUsername
+        u => u.email === email || (cleanUsername && u.user_metadata?.username === cleanUsername)
       );
       if (existing) {
-        return { success: false, error: 'Username already taken. Please choose another or sign in.' };
+        return { success: false, error: 'An account with this email or username already exists. Please sign in.' };
       }
 
-      // 2. Create in Supabase Auth
+      // 2. Create in Supabase Auth with real user email
       const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
         email,
         password,
@@ -122,6 +135,7 @@ export async function registerUser(data: { username: string; name: string; passw
         id: newUser.user.id,
         username: cleanUsername,
         name: cleanName,
+        email: email,
         membershipTier: 'Free Member',
       };
 

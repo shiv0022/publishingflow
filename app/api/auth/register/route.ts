@@ -4,16 +4,17 @@ import { registerUser } from '@/lib/userStore';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { username, name, password } = body;
+    const { email, username, name, password } = body;
 
-    if (!username || !name || !password) {
+    const userEmail = (email || username || '').trim();
+    if (!userEmail || !name || !password) {
       return NextResponse.json(
-        { error: 'Name, username, and password are all required.' },
+        { error: 'Name, email address, and password are all required.' },
         { status: 400 }
       );
     }
 
-    const result = await registerUser({ username, name, password });
+    const result = await registerUser({ email: userEmail, username: username || userEmail.split('@')[0], name, password });
     if (!result.success || !result.user) {
       return NextResponse.json({ error: result.error || 'Failed to register.' }, { status: 400 });
     }
