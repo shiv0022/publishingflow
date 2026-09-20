@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { logAudit } from '@/lib/auditLogger';
 import { getOAuthRedirectUri, getCleanMetaCredentials, getCleanGoogleCredentials } from '@/lib/oauthUrl';
+import { addAccountToUser } from '@/lib/userStore';
 
 /**
  * Server-Side OAuth Callback Handler
@@ -20,11 +21,24 @@ export async function GET(
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get('code');
   const error = searchParams.get('error');
-  const stateAccountId = searchParams.get('state');
+  const rawState = searchParams.get('state');
+
+  let stateAccountId: string | null = null;
+  let stateUserId: string | null = request.cookies.get('pf_session_user_id')?.value || null;
+
+  if (rawState) {
+    try {
+      const decoded = JSON.parse(Buffer.from(rawState, 'base64').toString('utf-8'));
+      if (decoded.accountId) stateAccountId = decoded.accountId;
+      if (decoded.userId) stateUserId = decoded.userId;
+    } catch {
+      stateAccountId = rawState;
+    }
+  }
 
   if (error || !code) {
     return NextResponse.redirect(
-      new URL(`/profile?error=oauth_denied&platform=${platformKey}`, request.url)
+      new URL(`/connect?error=oauth_denied&platform=${platformKey}`, request.url)
     );
   }
 
@@ -43,7 +57,7 @@ export async function GET(
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(
-          new URL(`/profile?error=oauth_not_configured&platform=${platformKey}`, request.url)
+          new URL(`/connect?error=oauth_not_configured&platform=${platformKey}`, request.url)
         );
       }
 
@@ -158,7 +172,7 @@ export async function GET(
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(
-          new URL(`/profile?error=oauth_not_configured&platform=youtube`, request.url)
+          new URL(`/connect?error=oauth_not_configured&platform=youtube`, request.url)
         );
       }
 
@@ -204,7 +218,7 @@ export async function GET(
 
       if (!clientId || !clientSecret) {
         return NextResponse.redirect(
-          new URL(`/profile?error=oauth_not_configured&platform=threads`, request.url)
+          new URL(`/connect?error=oauth_not_configured&platform=threads`, request.url)
         );
       }
 
@@ -356,9 +370,26 @@ export async function GET(
         }
       }
 
+      // Save to user-isolated file
+      if (stateUserId && targetAccountId) {
+        addAccountToUser(stateUserId, {
+          id: targetAccountId,
+          clientName: clientName || (platformKey === 'facebook' ? 'Facebook Page' : 'Instagram Account'),
+          platform: formattedPlatform as any,
+          connectionType: 'oauth',
+          connectionStatus: 'Connected',
+          oauthAccountId: accountId,
+          oauthAccessToken: accessToken,
+          oauthTokenExpiresAt: expiresAt || undefined,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
+
       // 2B. If Meta returned a linked Instagram account, auto-link it in 1-click!
       if (linkedIgAccount?.id && platformKey === 'facebook') {
         const igClientName = linkedIgAccount.username || linkedIgAccount.name || clientName;
+        const igAccId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-ig-${Date.now()}`;
         try {
           const { data: existingIg } = await supabase
             .from('accounts')
@@ -382,11 +413,25 @@ export async function GET(
           if (existingIg?.id) {
             await supabase.from('accounts').update(igPayload).eq('id', existingIg.id);
           } else {
-            const igAccId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `acc-ig-${Date.now()}`;
             await supabase.from('accounts').insert({
               id: igAccId,
               created_at: new Date().toISOString(),
               ...igPayload,
+            });
+          }
+
+          if (stateUserId) {
+            addAccountToUser(stateUserId, {
+              id: existingIg?.id || igAccId,
+              clientName: igClientName,
+              platform: 'Instagram',
+              connectionType: 'oauth',
+              connectionStatus: 'Connected',
+              oauthAccountId: linkedIgAccount.id,
+              oauthAccessToken: accessToken,
+              oauthTokenExpiresAt: expiresAt || undefined,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
             });
           }
         } catch (igLinkErr) {
@@ -447,12 +492,12 @@ export async function GET(
     }
 
     return NextResponse.redirect(
-      new URL(`/profile?connected=true&platform=${platformKey}&name=${encodeURIComponent(clientName)}`, request.url)
+      new URL(`/connect?connected=true&platform=${platformKey}&name=${encodeURIComponent(clientName)}`, request.url)
     );
   } catch (err: any) {
     console.error('OAuth Callback Exchange Error:', err);
     return NextResponse.redirect(
-      new URL(`/profile?error=oauth_exchange_failed&platform=${platformKey}&message=${encodeURIComponent(err.message || '')}`, request.url)
+      new URL(`/connect?error=oauth_exchange_failed&platform=${platformKey}&message=${encodeURIComponent(err.message || '')}`, request.url)
     );
   }
 }

@@ -24,14 +24,16 @@ export async function GET(
 
   const searchParams = request.nextUrl.searchParams;
   const accountId = searchParams.get('accountId');
-  const stateQuery = accountId ? `&state=${encodeURIComponent(accountId)}` : '';
+  const userId = searchParams.get('userId') || request.cookies.get('pf_session_user_id')?.value;
+  const stateData = JSON.stringify({ accountId: accountId || null, userId: userId || null });
+  const stateQuery = `&state=${encodeURIComponent(Buffer.from(stateData).toString('base64'))}`;
 
   if (platformKey === 'facebook' || platformKey === 'meta') {
     const { clientId, clientSecret } = getCleanMetaCredentials();
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/profile?error=oauth_not_configured&platform=meta', request.url)
+        new URL('/connect?error=oauth_not_configured&platform=meta', request.url)
       );
     }
 
@@ -50,7 +52,7 @@ export async function GET(
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/profile?error=oauth_not_configured&platform=instagram', request.url)
+        new URL('/connect?error=oauth_not_configured&platform=instagram', request.url)
       );
     }
 
@@ -69,7 +71,7 @@ export async function GET(
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/profile?error=oauth_not_configured&platform=threads', request.url)
+        new URL('/connect?error=oauth_not_configured&platform=threads', request.url)
       );
     }
 
@@ -88,7 +90,7 @@ export async function GET(
 
     if (!clientId || !clientSecret) {
       return NextResponse.redirect(
-        new URL('/profile?error=oauth_not_configured&platform=youtube', request.url)
+        new URL('/connect?error=oauth_not_configured&platform=youtube', request.url)
       );
     }
 
@@ -102,5 +104,5 @@ export async function GET(
     return NextResponse.redirect(authUrl);
   }
 
-  return NextResponse.redirect(new URL('/profile', request.url));
+  return NextResponse.redirect(new URL('/connect', request.url));
 }

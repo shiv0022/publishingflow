@@ -32,6 +32,8 @@ export interface Account {
   connectionType: ConnectionType;
   connectionStatus: ConnectionStatus;
   oauthAccountId?: string;
+  oauthAccessToken?: string;
+  oauthTokenExpiresAt?: string;
   createdAt: string;
   updatedAt?: string;
 }

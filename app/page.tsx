@@ -5,27 +5,105 @@ export const dynamic = 'force-dynamic';
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
-import { Share2, ArrowRight } from 'lucide-react';
-import { FacebookFilledIcon } from '@/components/PlatformIcons';
+import { Share2, ArrowRight, Lock, User, UserPlus, LogIn, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user, login, isLoaded, accounts } = useApp();
-  const [name, setName] = useState('');
+  const { user, login, isLoaded } = useApp();
+
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+
+  // Login form state
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+
+  // Register form state
+  const [regName, setRegName] = useState('');
+  const [regUsername, setRegUsername] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (isLoaded && user.loggedIn) {
-      const hasAccounts = accounts.some(a => a.connectionStatus === 'Connected');
-      router.replace(hasAccounts ? '/upload' : '/profile');
+      router.replace('/dashboard');
     }
-  }, [isLoaded, user.loggedIn, accounts, router]);
+  }, [isLoaded, user.loggedIn, router]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
-    login(name.trim());
-    const hasAccounts = accounts.some(a => a.connectionStatus === 'Connected');
-    router.push(hasAccounts ? '/upload' : '/profile');
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!loginUsername.trim() || !loginPassword) {
+      setErrorMsg('Please enter both username and password.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: loginUsername.trim(),
+          password: loginPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Login failed.');
+      }
+
+      login(data.user);
+      router.push('/dashboard');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!regName.trim() || !regUsername.trim() || !regPassword) {
+      setErrorMsg('All fields are required.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: regName.trim(),
+          username: regUsername.trim(),
+          password: regPassword,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Registration failed.');
+      }
+
+      setSuccessMsg('Account created! Logging you in...');
+      login(data.user);
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 500);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Registration failed.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!isLoaded || user.loggedIn) {
@@ -45,100 +123,272 @@ export default function LoginPage() {
       alignItems: 'center',
       justifyContent: 'center',
       padding: '1.5rem',
-      background: '#f4f6fb'
+      background: 'linear-gradient(135deg, #f8fafc 0%, #edf2f7 100%)',
+      marginLeft: '-272px',
+      width: 'calc(100% + 272px)',
     }}>
       <div style={{
         width: '100%',
-        maxWidth: '420px',
+        maxWidth: '440px',
         background: '#ffffff',
-        borderRadius: '16px',
+        borderRadius: '20px',
         padding: '2.5rem 2rem',
-        boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.08)',
         border: '1px solid #e2e8f0',
-        textAlign: 'center'
       }}>
-        {/* Logo */}
-        <div style={{
-          width: '54px',
-          height: '54px',
-          borderRadius: '14px',
-          background: 'var(--gradient-brand)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          margin: '0 auto 1.25rem',
-          color: '#fff',
-          boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)'
-        }}>
-          <Share2 size={26} />
-        </div>
-
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', margin: 0 }}>
-          PublishingFlow
-        </h1>
-        <p style={{ fontSize: '0.88rem', color: '#64748b', marginTop: '0.35rem', marginBottom: '1.75rem' }}>
-          Publish to Facebook &amp; Instagram in one click
-        </p>
-
-        {/* 1-Click Meta OAuth Login */}
-        <a
-          href="/api/oauth/facebook"
-          className="btn btn-full btn-lg"
-          style={{
-            background: '#1877f2',
-            color: '#fff',
-            padding: '0.85rem 1rem',
-            fontSize: '0.98rem',
-            fontWeight: 600,
+        {/* Logo & Header */}
+        <div style={{ textAlign: 'center', marginBottom: '1.75rem' }}>
+          <div style={{
+            width: '56px',
+            height: '56px',
+            borderRadius: '16px',
+            background: 'var(--gradient-brand)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '0.65rem',
-            textDecoration: 'none',
-            borderRadius: 'var(--radius-md)',
-            boxShadow: '0 2px 8px rgba(24, 119, 242, 0.25)'
-          }}
-        >
-          <FacebookFilledIcon size={20} />
-          <span>Continue with Meta (Facebook)</span>
-        </a>
-
-        {/* Divider */}
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '0.75rem',
-          margin: '1.5rem 0',
-          color: 'var(--text-dim)',
-          fontSize: '0.78rem',
-          textTransform: 'uppercase',
-          letterSpacing: '0.04em'
-        }}>
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
-          <span>or test with name</span>
-          <div style={{ flex: 1, height: '1px', background: '#e2e8f0' }} />
+            margin: '0 auto 1rem',
+            color: '#fff',
+            boxShadow: '0 6px 16px rgba(79, 70, 229, 0.3)',
+          }}>
+            <Share2 size={28} />
+          </div>
+          <h1 style={{ fontSize: '1.55rem', fontWeight: 800, color: '#0f172a', margin: 0, letterSpacing: '-0.02em' }}>
+            PublishingFlow
+          </h1>
+          <p style={{ fontSize: '0.88rem', color: '#64748b', marginTop: '0.35rem' }}>
+            Multi-Account Social Media Hub
+          </p>
         </div>
 
-        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          <input
-            type="text"
-            className="input"
-            placeholder="Enter your name to test"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{ textAlign: 'center', fontSize: '0.92rem', padding: '0.75rem' }}
-          />
-
+        {/* Auth Tabs */}
+        <div style={{
+          display: 'flex',
+          background: '#f1f5f9',
+          borderRadius: '12px',
+          padding: '4px',
+          marginBottom: '1.5rem',
+          gap: '4px',
+        }}>
           <button
-            type="submit"
-            className="btn btn-secondary btn-full"
-            disabled={!name.trim()}
-            style={{ padding: '0.7rem' }}
+            type="button"
+            onClick={() => { setMode('login'); setErrorMsg(null); }}
+            style={{
+              flex: 1,
+              padding: '0.65rem',
+              borderRadius: '9px',
+              border: 'none',
+              background: mode === 'login' ? '#ffffff' : 'transparent',
+              color: mode === 'login' ? '#0f172a' : '#64748b',
+              fontWeight: mode === 'login' ? 700 : 500,
+              fontSize: '0.88rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
+              boxShadow: mode === 'login' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
           >
-            <span>Quick Login</span>
-            <ArrowRight size={16} />
+            <LogIn size={16} />
+            <span>Sign In</span>
           </button>
-        </form>
+          <button
+            type="button"
+            onClick={() => { setMode('register'); setErrorMsg(null); }}
+            style={{
+              flex: 1,
+              padding: '0.65rem',
+              borderRadius: '9px',
+              border: 'none',
+              background: mode === 'register' ? '#ffffff' : 'transparent',
+              color: mode === 'register' ? '#0f172a' : '#64748b',
+              fontWeight: mode === 'register' ? 700 : 500,
+              fontSize: '0.88rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '0.4rem',
+              boxShadow: mode === 'register' ? '0 2px 6px rgba(0,0,0,0.06)' : 'none',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <UserPlus size={16} />
+            <span>Create Profile</span>
+          </button>
+        </div>
+
+        {/* Alerts */}
+        {errorMsg && (
+          <div style={{
+            padding: '0.75rem 1rem',
+            borderRadius: '10px',
+            background: '#fff1f2',
+            border: '1px solid #fecdd3',
+            color: '#be123c',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginBottom: '1.25rem',
+          }}>
+            <AlertCircle size={17} />
+            <span>{errorMsg}</span>
+          </div>
+        )}
+
+        {successMsg && (
+          <div style={{
+            padding: '0.75rem 1rem',
+            borderRadius: '10px',
+            background: '#ecfdf5',
+            border: '1px solid #a7f3d0',
+            color: '#047857',
+            fontSize: '0.85rem',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            marginBottom: '1.25rem',
+          }}>
+            <CheckCircle2 size={17} />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
+        {/* Sign In Form */}
+        {mode === 'login' ? (
+          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Username
+              </label>
+              <div style={{ position: 'relative' }}>
+                <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. rachit"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Enter password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary btn-full btn-lg"
+              disabled={loading}
+              style={{ marginTop: '0.5rem', padding: '0.85rem', borderRadius: '12px' }}
+            >
+              <span>{loading ? 'Authenticating...' : 'Sign In to Dashboard'}</span>
+              <ArrowRight size={18} />
+            </button>
+
+            <div style={{
+              background: '#f8fafc',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '10px',
+              padding: '0.75rem',
+              textAlign: 'center',
+              fontSize: '0.8rem',
+              color: '#64748b',
+              marginTop: '0.5rem',
+            }}>
+              💡 Pre-configured profile: <strong style={{ color: '#0f172a' }}>rachit</strong> / password: <strong style={{ color: '#0f172a' }}>rachit123</strong>
+            </div>
+          </form>
+        ) : (
+          /* Create Profile Form */
+          <form onSubmit={handleRegister} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Your Full Name
+              </label>
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. Rachit Chauhan"
+                value={regName}
+                onChange={(e) => setRegName(e.target.value)}
+                style={{ fontSize: '0.92rem' }}
+                required
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Choose Username
+              </label>
+              <div style={{ position: 'relative' }}>
+                <User size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. john_doe"
+                  value={regUsername}
+                  onChange={(e) => setRegUsername(e.target.value)}
+                  style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
+                Create Password
+              </label>
+              <div style={{ position: 'relative' }}>
+                <Lock size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+                <input
+                  type="password"
+                  className="input"
+                  placeholder="Min. 4 characters"
+                  value={regPassword}
+                  onChange={(e) => setRegPassword(e.target.value)}
+                  style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary btn-full btn-lg"
+              disabled={loading}
+              style={{ marginTop: '0.5rem', padding: '0.85rem', borderRadius: '12px' }}
+            >
+              <span>{loading ? 'Creating Profile...' : 'Create Profile & File'}</span>
+              <ArrowRight size={18} />
+            </button>
+
+            <p style={{ fontSize: '0.78rem', color: '#94a3b8', textAlign: 'center', margin: 0 }}>
+              A dedicated profile file will be generated for you on the server.
+            </p>
+          </form>
+        )}
       </div>
     </div>
   );

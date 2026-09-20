@@ -1,5 +1,15 @@
 [
   {
+    "id": "abb1c6c6-8b2a-43c9-b5e4-8c8055367beb",
+    "platform": "Instagram",
+    "keyword": "LINK",
+    "dmMessage": "hey there is price lit",
+    "commentReply": "send check the dm",
+    "isActive": true,
+    "triggerCount": 0,
+    "createdAt": "2026-09-20T08:36:20.643Z"
+  },
+  {
     "id": "035c97bb-7beb-47e7-9531-7a259b4c842d",
     "platform": "Instagram",
     "keyword": "INFO",

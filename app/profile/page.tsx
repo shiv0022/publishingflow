@@ -33,8 +33,8 @@ function ProfileContent() {
     const platform = searchParams.get('platform');
     const name = searchParams.get('name');
     if (connected === 'true') {
-      if (name) {
-        login(name);
+      if (name && !user.loggedIn) {
+        login({ name });
       }
       setSuccessMsg(`Meta account connected successfully${name ? `: ${name}` : ''}!`);
       refreshData();

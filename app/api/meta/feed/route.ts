@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabaseServer';
 import { getValidAccessToken } from '@/lib/oauthTokens';
+import { getUserData } from '@/lib/userStore';
 
 export interface MetaContentItem {
   id: string;
@@ -25,21 +26,37 @@ export interface MetaContentItem {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const requestedPlatform = searchParams.get('platform') || 'all';
+  const sessionUserId = req.cookies.get('pf_session_user_id')?.value || searchParams.get('userId');
 
-  const supabase = createServerSupabaseClient();
   const liveItems: MetaContentItem[] = [];
 
-  if (supabase) {
-    try {
-      const { data: accounts } = await supabase
-        .from('accounts')
-        .select('*')
-        .eq('connection_status', 'Connected')
-        .eq('connection_type', 'oauth');
+  if (!sessionUserId) {
+    return NextResponse.json({ success: true, count: 0, items: [] });
+  }
 
-      for (const acc of accounts || []) {
+  const userData = getUserData(sessionUserId);
+  if (!userData || !userData.accounts || userData.accounts.length === 0) {
+    return NextResponse.json({ success: true, count: 0, items: [] });
+  }
+
+  const userAccounts = userData.accounts.filter(
+    a => a.connectionStatus === 'Connected' && a.connectionType === 'oauth'
+  );
+
+  for (const acc of userAccounts) {
+    try {
+      let accessToken = acc.oauthAccessToken;
+      let oauthAccountId = acc.oauthAccountId;
+
+      if (!accessToken) {
         try {
-          const { accessToken, oauthAccountId } = await getValidAccessToken(acc.id);
+          const res = await getValidAccessToken(acc.id);
+          accessToken = res.accessToken;
+          oauthAccountId = res.oauthAccountId || oauthAccountId;
+        } catch {}
+      }
+
+      if (!accessToken) continue;
 
           // 1. Fetch Instagram Live Media
           if ((requestedPlatform === 'all' || requestedPlatform === 'instagram') && acc.platform === 'Instagram') {
@@ -64,7 +81,7 @@ export async function GET(req: NextRequest) {
                   shareCount: 0,
                   viewCount: 0,
                   publishedAt: item.timestamp || new Date().toISOString(),
-                  accountName: acc.client_name,
+                  accountName: acc.clientName || (acc as any).client_name || 'Instagram',
                 });
               }
             }
@@ -120,7 +137,7 @@ export async function GET(req: NextRequest) {
                     shareCount: item.shares?.count || 0,
                     viewCount: 0,
                     publishedAt: item.created_time || new Date().toISOString(),
-                    accountName: acc.client_name,
+                    accountName: acc.clientName || (acc as any).client_name || 'Facebook',
                   });
                 }
               }
@@ -167,7 +184,7 @@ export async function GET(req: NextRequest) {
                       shareCount: 0,
                       viewCount: views,
                       publishedAt: vid.created_time || new Date().toISOString(),
-                      accountName: acc.client_name,
+                      accountName: acc.clientName || (acc as any).client_name || 'Facebook',
                     });
                   }
                 }
@@ -177,13 +194,9 @@ export async function GET(req: NextRequest) {
             }
           }
         } catch (accErr) {
-          console.warn(`[Meta Feed] Failed fetching for account ${acc.client_name}:`, accErr);
+          console.warn(`[Meta Feed] Failed fetching for account:`, accErr);
         }
       }
-    } catch (dbErr) {
-      console.warn('[Meta Feed] DB Query warning:', dbErr);
-    }
-  }
 
   // Sort latest first
   liveItems.sort((a, b) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime());

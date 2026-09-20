@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AppProvider } from '@/context/AppContext';
-import { SimpleNav } from '@/components/SimpleNav';
+import { Sidebar } from '@/components/Sidebar';
 
 export const metadata: Metadata = {
-  title: 'PublishingFlow — Social Media Publishing',
-  description: 'Simple social media publishing for Facebook, Instagram, and YouTube',
+  title: 'PublishingFlow — Social Media Manager',
+  description: 'Manage your Facebook & Instagram accounts, posts, and auto-replies in one place',
 };
 
 export default function RootLayout({
@@ -23,8 +23,10 @@ export default function RootLayout({
       </head>
       <body>
         <AppProvider>
-          <SimpleNav />
-          {children}
+          <Sidebar />
+          <div className="sidebar-main-content">
+            {children}
+          </div>
         </AppProvider>
       </body>
     </html>
