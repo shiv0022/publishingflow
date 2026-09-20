@@ -67,8 +67,11 @@ export async function POST(req: NextRequest) {
 
         // 1. Handle Instagram & Facebook comments
         if (entry.changes) {
+          const processedCommentsInPayload = new Set<string>();
           for (const change of entry.changes) {
-            if (change.field === 'comments' || change.field === 'feed') {
+            // Instagram uses 'comments'; Facebook Page uses 'comments' or 'feed'
+            const isRelevantField = change.field === 'comments' || (body.object === 'page' && change.field === 'feed');
+            if (isRelevantField) {
               const value = change.value;
               const commentText = value?.text || value?.message || '';
               const commentId = value?.id || value?.comment_id;
@@ -76,7 +79,8 @@ export async function POST(req: NextRequest) {
               const fromId = value?.from?.id;
               const mediaId = value?.media?.id || value?.post_id;
 
-              if (commentId && commentText && accessToken) {
+              if (commentId && commentText && accessToken && !processedCommentsInPayload.has(commentId)) {
+                processedCommentsInPayload.add(commentId);
                 console.log(`[Meta Webhook] Processing comment "${commentText}" (ID: ${commentId})`);
                 await processCommentForAutoReply({
                   commentId,
