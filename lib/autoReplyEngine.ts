@@ -118,7 +118,8 @@ export async function processCommentForAutoReply(
   if (matchedRule.dmMessage) {
     try {
       // Both FB Messenger and Instagram support private reply to a comment using recipient: { comment_id }
-      const dmEndpoint = `https://graph.facebook.com/v22.0/${pageIdOrIgId}/messages`;
+      // Using /me/messages routes to the authenticated Page token which manages both FB and IG assets
+      const dmEndpoint = 'https://graph.facebook.com/v22.0/me/messages';
       const res = await fetch(dmEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
