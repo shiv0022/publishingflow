@@ -37,14 +37,14 @@ export default function LoginPage() {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!loginEmail.trim() || !loginPassword) {
-      setErrorMsg('Please enter both email address and password.');
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    if (!cleanEmail || !loginPassword) {
+      setErrorMsg('Please enter both email and password.');
       return;
     }
 
-    const cleanEmail = loginEmail.trim().toLowerCase();
     if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
-      setErrorMsg('Please enter a valid registered email address (e.g. name@gmail.com).');
+      setErrorMsg('Invalid email or password.');
       return;
     }
 
@@ -61,13 +61,13 @@ export default function LoginPage() {
 
       const data = await res.json();
       if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Login failed.');
+        throw new Error(data.error || 'Invalid email or password.');
       }
 
       login(data.user);
       router.push('/dashboard');
     } catch (err: any) {
-      setErrorMsg(err.message || 'Login failed. Please try again.');
+      setErrorMsg(err.message || 'Invalid email or password.');
     } finally {
       setLoading(false);
     }
@@ -266,7 +266,7 @@ export default function LoginPage() {
 
         {/* Sign In Form */}
         {mode === 'login' ? (
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <form onSubmit={handleLogin} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
                 Email Address
@@ -276,7 +276,7 @@ export default function LoginPage() {
                 <input
                   type="email"
                   className="input"
-                  placeholder="Enter registered email (e.g. name@gmail.com)"
+                  placeholder="you@example.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}

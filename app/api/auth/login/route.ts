@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
     if (!email.includes('@') || !email.includes('.')) {
       return NextResponse.json(
-        { error: 'Please enter a valid email address (e.g., name@gmail.com). Login is restricted to emails to prevent account collisions.' },
+        { error: 'Invalid email or password.' },
         { status: 400 }
       );
     }

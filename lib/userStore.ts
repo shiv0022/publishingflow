@@ -212,7 +212,7 @@ export async function authenticateUser(emailInput: string, password: string): Pr
   if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
     return {
       success: false,
-      error: 'Please enter your registered email address (e.g., yourname@gmail.com). Usernames cannot be used to log in because emails are 100% unique.',
+      error: 'Invalid email or password.',
     };
   }
 
