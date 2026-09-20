@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ loggedIn: false, user: null }, { status: 401 });
   }
 
-  const user = findUserById(sessionUserId);
+  const user = await findUserById(sessionUserId);
   if (!user) {
     return NextResponse.json({ loggedIn: false, user: null }, { status: 401 });
   }
@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
       id: user.id,
       username: user.username,
       name: user.name,
+      membershipTier: user.membershipTier || 'Free Member',
     },
   });
 }

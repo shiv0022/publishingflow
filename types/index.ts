@@ -15,6 +15,8 @@ export interface AutoReplyRule {
   isActive: boolean;
   triggerCount: number;
   createdAt: string;
+  targetPostId?: string; // Specific post/reel ID or 'all'
+  targetPostTitle?: string;
 }
 
 export interface Client {

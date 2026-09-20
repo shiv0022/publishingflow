@@ -372,7 +372,7 @@ export async function GET(
 
       // Save to user-isolated file
       if (stateUserId && targetAccountId) {
-        addAccountToUser(stateUserId, {
+        await addAccountToUser(stateUserId, {
           id: targetAccountId,
           clientName: clientName || (platformKey === 'facebook' ? 'Facebook Page' : 'Instagram Account'),
           platform: formattedPlatform as any,
@@ -421,7 +421,7 @@ export async function GET(
           }
 
           if (stateUserId) {
-            addAccountToUser(stateUserId, {
+            await addAccountToUser(stateUserId, {
               id: existingIg?.id || igAccId,
               clientName: igClientName,
               platform: 'Instagram',

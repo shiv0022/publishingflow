@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
   }
 
-  const userData = getUserData(sessionUserId);
+  const userData = await getUserData(sessionUserId);
   if (!userData) {
     return NextResponse.json({ error: 'User data file not found.' }, { status: 404 });
   }
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized. Please log in.' }, { status: 401 });
   }
 
-  const existingData = getUserData(sessionUserId);
+  const existingData = await getUserData(sessionUserId);
   if (!existingData) {
     return NextResponse.json({ error: 'User data file not found.' }, { status: 404 });
   }
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     if (action === 'delete_account') {
       existingData.accounts = existingData.accounts.filter(a => a.id !== payload.id);
-      saveUserData(sessionUserId, existingData);
+      await saveUserData(sessionUserId, existingData);
       return NextResponse.json({ success: true, data: existingData });
     }
 
@@ -43,19 +43,19 @@ export async function POST(req: NextRequest) {
       if (payload.accounts) existingData.accounts = payload.accounts;
       if (payload.posts) existingData.posts = payload.posts;
       if (payload.autoReplyRules) existingData.autoReplyRules = payload.autoReplyRules;
-      saveUserData(sessionUserId, existingData);
+      await saveUserData(sessionUserId, existingData);
       return NextResponse.json({ success: true, data: existingData });
     }
 
     if (action === 'add_rule') {
       existingData.autoReplyRules = [payload.rule, ...(existingData.autoReplyRules || [])];
-      saveUserData(sessionUserId, existingData);
+      await saveUserData(sessionUserId, existingData);
       return NextResponse.json({ success: true, data: existingData });
     }
 
     if (action === 'delete_rule') {
       existingData.autoReplyRules = (existingData.autoReplyRules || []).filter(r => r.id !== payload.id);
-      saveUserData(sessionUserId, existingData);
+      await saveUserData(sessionUserId, existingData);
       return NextResponse.json({ success: true, data: existingData });
     }
 

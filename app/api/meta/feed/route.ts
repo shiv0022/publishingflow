@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: true, count: 0, items: [] });
   }
 
-  const userData = getUserData(sessionUserId);
+  const userData = await getUserData(sessionUserId);
   if (!userData || !userData.accounts || userData.accounts.length === 0) {
     return NextResponse.json({ success: true, count: 0, items: [] });
   }

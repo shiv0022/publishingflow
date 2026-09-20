@@ -155,7 +155,9 @@ export function Sidebar() {
             </div>
             <div className="sidebar-user-info">
               <span className="sidebar-user-name">{user.name}</span>
-              <span className="sidebar-user-role">Manager</span>
+              <span className="sidebar-user-role">
+                {user.membershipTier || 'Free Member'}
+              </span>
             </div>
             <button
               onClick={handleLogout}

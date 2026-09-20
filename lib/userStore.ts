@@ -3,13 +3,15 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { Account, Post, AutoReplyRule } from '@/types';
+import { createServerSupabaseClient } from './supabaseServer';
 
 export interface UserRecord {
   id: string;
   username: string;
   name: string;
-  passwordHash: string;
-  salt: string;
+  membershipTier?: string;
+  passwordHash?: string;
+  salt?: string;
   createdAt: string;
 }
 
@@ -18,48 +20,13 @@ export interface UserDataFile {
     id: string;
     username: string;
     name: string;
+    membershipTier?: string;
     createdAt: string;
   };
   accounts: Account[];
   posts: Post[];
   autoReplyRules: AutoReplyRule[];
 }
-
-function hashPassword(password: string, salt: string): string {
-  return crypto.pbkdf2Sync(password, salt, 1000, 64, 'sha512').toString('hex');
-}
-
-// Fallback in-memory state for serverless environments
-const defaultSalt = 'a1b2c3d4e5f67890123456789abcdef0';
-const defaultHash = hashPassword('rachit123', defaultSalt);
-
-const defaultRachitRecord: UserRecord = {
-  id: 'usr_rachit',
-  username: 'rachit',
-  name: 'Rachit Chauhan',
-  passwordHash: defaultHash,
-  salt: defaultSalt,
-  createdAt: '2026-09-20T00:00:00.000Z',
-};
-
-const defaultRachitData: UserDataFile = {
-  user: {
-    id: 'usr_rachit',
-    username: 'rachit',
-    name: 'Rachit Chauhan',
-    createdAt: '2026-09-20T00:00:00.000Z',
-  },
-  accounts: [],
-  posts: [],
-  autoReplyRules: [],
-};
-
-const memoryUsers: Map<string, UserRecord> = new Map([
-  [defaultRachitRecord.id, defaultRachitRecord],
-]);
-const memoryUserData: Map<string, UserDataFile> = new Map([
-  [defaultRachitRecord.id, JSON.parse(JSON.stringify(defaultRachitData))],
-]);
 
 function isServerless(): boolean {
   return Boolean(
@@ -80,162 +47,278 @@ function getUsersDir(): string {
   return path.join(getDataDir(), 'users');
 }
 
-function getUsersIndexFile(): string {
-  return path.join(getDataDir(), 'users_index.json');
+function formatEmailForUsername(username: string): string {
+  const clean = username.trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+  return `${clean}@publishingflow.app`;
 }
 
-export function ensureStore() {
-  const dataDir = getDataDir();
-  const usersDir = getUsersDir();
-  const usersIndexFile = getUsersIndexFile();
+// In-memory cache
+const memoryUsers: Map<string, UserRecord> = new Map();
+const memoryUserData: Map<string, UserDataFile> = new Map();
 
+function ensureStore() {
   try {
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    const dir = getUsersDir();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
-    if (!fs.existsSync(usersDir)) {
-      fs.mkdirSync(usersDir, { recursive: true });
-    }
-
-    if (!fs.existsSync(usersIndexFile)) {
-      fs.writeFileSync(usersIndexFile, JSON.stringify([defaultRachitRecord], null, 2), 'utf-8');
-
-      const rachitFilePath = path.join(usersDir, 'usr_rachit.json');
-      fs.writeFileSync(rachitFilePath, JSON.stringify(defaultRachitData, null, 2), 'utf-8');
-    }
-  } catch (err) {
-    console.warn('[UserStore] Filesystem setup note (using memory/tmp fallback):', err);
-  }
-}
-
-export function getAllUsers(): UserRecord[] {
-  ensureStore();
-  const usersIndexFile = getUsersIndexFile();
-  try {
-    if (fs.existsSync(usersIndexFile)) {
-      const raw = fs.readFileSync(usersIndexFile, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        parsed.forEach(u => memoryUsers.set(u.id, u));
-        return parsed;
-      }
-    }
-  } catch (err) {
-    console.warn('[UserStore] Reading index fallback to memory:', err);
-  }
-  return Array.from(memoryUsers.values());
-}
-
-export function findUserByUsername(username: string): UserRecord | null {
-  const users = getAllUsers();
-  const normalized = username.trim().toLowerCase();
-  return users.find(u => u.username.toLowerCase() === normalized) || null;
-}
-
-export function findUserById(id: string): UserRecord | null {
-  const users = getAllUsers();
-  return users.find(u => u.id === id) || memoryUsers.get(id) || null;
-}
-
-export function registerUser(data: { username: string; name: string; password: string }): {
-  success: boolean;
-  user?: { id: string; username: string; name: string };
-  error?: string;
-} {
-  ensureStore();
-  const username = data.username.trim().toLowerCase();
-  const name = data.name.trim();
-
-  if (!username || username.length < 3) {
-    return { success: false, error: 'Username must be at least 3 characters long.' };
-  }
-  if (!name) {
-    return { success: false, error: 'Please enter your full name.' };
-  }
-  if (!data.password || data.password.length < 4) {
-    return { success: false, error: 'Password must be at least 4 characters long.' };
-  }
-
-  const existing = findUserByUsername(username);
-  if (existing) {
-    return { success: false, error: 'Username is already registered. Please choose another or log in.' };
-  }
-
-  const userId = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-  const salt = crypto.randomBytes(16).toString('hex');
-  const passwordHash = hashPassword(data.password, salt);
-  const now = new Date().toISOString();
-
-  const newRecord: UserRecord = {
-    id: userId,
-    username,
-    name,
-    passwordHash,
-    salt,
-    createdAt: now,
-  };
-
-  // 1. Update memory
-  memoryUsers.set(userId, newRecord);
-
-  const initialUserData: UserDataFile = {
-    user: {
-      id: userId,
-      username,
-      name,
-      createdAt: now,
-    },
-    accounts: [],
-    posts: [],
-    autoReplyRules: [],
-  };
-  memoryUserData.set(userId, initialUserData);
-
-  // 2. Persist to disk
-  try {
-    const users = Array.from(memoryUsers.values());
-    fs.writeFileSync(getUsersIndexFile(), JSON.stringify(users, null, 2), 'utf-8');
-
-    const userFilePath = path.join(getUsersDir(), `${userId}.json`);
-    fs.writeFileSync(userFilePath, JSON.stringify(initialUserData, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('[UserStore] Persisting user to disk note:', err);
-  }
-
-  return {
-    success: true,
-    user: { id: userId, username, name },
-  };
-}
-
-export function authenticateUser(username: string, password: string): {
-  success: boolean;
-  user?: { id: string; username: string; name: string };
-  error?: string;
-} {
-  ensureStore();
-  const user = findUserByUsername(username);
-  if (!user) {
-    return { success: false, error: 'User not found. Please register first.' };
-  }
-
-  const inputHash = hashPassword(password, user.salt);
-  if (inputHash !== user.passwordHash) {
-    return { success: false, error: 'Incorrect password. Please check and try again.' };
-  }
-
-  return {
-    success: true,
-    user: { id: user.id, username: user.username, name: user.name },
-  };
+  } catch {}
 }
 
 export function getUserFilePath(userId: string): string {
   return path.join(getUsersDir(), `${userId}.json`);
 }
 
-export function getUserData(userId: string): UserDataFile | null {
+/**
+ * Register a user in Supabase Auth (with local fallback)
+ */
+export async function registerUser(data: { username: string; name: string; password: string }): Promise<{
+  success: boolean;
+  user?: { id: string; username: string; name: string; membershipTier?: string };
+  error?: string;
+}> {
+  const cleanUsername = data.username.trim().toLowerCase();
+  const cleanName = data.name.trim();
+  const password = data.password;
+
+  if (password.length < 4) {
+    return { success: false, error: 'Password must be at least 4 characters.' };
+  }
+
+  const email = formatEmailForUsername(cleanUsername);
+  const supabase = createServerSupabaseClient();
+
+  if (supabase) {
+    try {
+      // 1. Check if user already exists
+      const { data: userList } = await supabase.auth.admin.listUsers();
+      const existing = userList?.users?.find(
+        u => u.email === email || u.user_metadata?.username === cleanUsername
+      );
+      if (existing) {
+        return { success: false, error: 'Username already taken. Please choose another or sign in.' };
+      }
+
+      // 2. Create in Supabase Auth
+      const { data: newUser, error: createErr } = await supabase.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          username: cleanUsername,
+          name: cleanName,
+          membershipTier: 'Free Member',
+          role: 'member',
+          accounts: [],
+          autoReplyRules: [],
+        },
+      });
+
+      if (createErr || !newUser?.user) {
+        return { success: false, error: createErr?.message || 'Failed to create user in database.' };
+      }
+
+      const createdUser = {
+        id: newUser.user.id,
+        username: cleanUsername,
+        name: cleanName,
+        membershipTier: 'Free Member',
+      };
+
+      // Cache locally
+      const initialData: UserDataFile = {
+        user: {
+          id: createdUser.id,
+          username: cleanUsername,
+          name: cleanName,
+          membershipTier: 'Free Member',
+          createdAt: new Date().toISOString(),
+        },
+        accounts: [],
+        posts: [],
+        autoReplyRules: [],
+      };
+      memoryUserData.set(createdUser.id, initialData);
+
+      try {
+        ensureStore();
+        fs.writeFileSync(getUserFilePath(createdUser.id), JSON.stringify(initialData, null, 2), 'utf-8');
+      } catch {}
+
+      return { success: true, user: createdUser };
+    } catch (err: any) {
+      console.error('[UserStore Supabase Register Error]:', err);
+    }
+  }
+
+  // Local fallback if Supabase is unavailable
   ensureStore();
+  const userId = `usr_${cleanUsername}`;
+  const userRec: UserRecord = {
+    id: userId,
+    username: cleanUsername,
+    name: cleanName,
+    membershipTier: 'Free Member',
+    createdAt: new Date().toISOString(),
+  };
+  memoryUsers.set(userId, userRec);
+
+  const initialData: UserDataFile = {
+    user: {
+      id: userId,
+      username: cleanUsername,
+      name: cleanName,
+      membershipTier: 'Free Member',
+      createdAt: new Date().toISOString(),
+    },
+    accounts: [],
+    posts: [],
+    autoReplyRules: [],
+  };
+  memoryUserData.set(userId, initialData);
+
+  try {
+    fs.writeFileSync(getUserFilePath(userId), JSON.stringify(initialData, null, 2), 'utf-8');
+  } catch {}
+
+  return { success: true, user: userRec };
+}
+
+/**
+ * Authenticate user via Supabase Auth (with local fallback)
+ */
+export async function authenticateUser(usernameOrEmail: string, password: string): Promise<{
+  success: boolean;
+  user?: { id: string; username: string; name: string; membershipTier?: string };
+  error?: string;
+}> {
+  const cleanInput = usernameOrEmail.trim().toLowerCase();
+  const supabase = createServerSupabaseClient();
+
+  if (supabase) {
+    try {
+      // 1. Resolve email
+      let email = cleanInput;
+      if (!cleanInput.includes('@')) {
+        email = formatEmailForUsername(cleanInput);
+      }
+
+      // Try sign in
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (!signInErr && signInData.user) {
+        const u = signInData.user;
+        const meta = u.user_metadata || {};
+        const userObj = {
+          id: u.id,
+          username: meta.username || cleanInput.split('@')[0],
+          name: meta.name || cleanInput.split('@')[0],
+          membershipTier: meta.membershipTier || 'Free Member',
+        };
+
+        // Sync local cache
+        if (!memoryUserData.has(u.id)) {
+          memoryUserData.set(u.id, {
+            user: { ...userObj, createdAt: u.created_at },
+            accounts: meta.accounts || [],
+            posts: meta.posts || [],
+            autoReplyRules: meta.autoReplyRules || [],
+          });
+        }
+
+        return { success: true, user: userObj };
+      }
+
+      // If direct email failed, attempt lookup by username in user_metadata
+      const { data: userList } = await supabase.auth.admin.listUsers();
+      const matched = userList?.users?.find(
+        u => u.user_metadata?.username === cleanInput || u.email === cleanInput
+      );
+
+      if (matched && matched.email) {
+        const { data: retryData, error: retryErr } = await supabase.auth.signInWithPassword({
+          email: matched.email,
+          password,
+        });
+
+        if (!retryErr && retryData.user) {
+          const u = retryData.user;
+          const meta = u.user_metadata || {};
+          const userObj = {
+            id: u.id,
+            username: meta.username || cleanInput,
+            name: meta.name || cleanInput,
+            membershipTier: meta.membershipTier || 'Free Member',
+          };
+          return { success: true, user: userObj };
+        }
+      }
+
+      return { success: false, error: 'Incorrect username or password. Please try again.' };
+    } catch (err: any) {
+      console.error('[UserStore Supabase Login Error]:', err);
+    }
+  }
+
+  // Fallback in-memory / local files
+  for (const [id, u] of memoryUsers.entries()) {
+    if (u.username === cleanInput) {
+      return { success: true, user: u };
+    }
+  }
+
+  return { success: false, error: 'User not found. Please register first.' };
+}
+
+/**
+ * Find user by ID (Supabase Auth first, then local cache)
+ */
+export async function findUserById(userId: string): Promise<UserRecord | null> {
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase.auth.admin.getUserById(userId);
+      if (data?.user) {
+        const meta = data.user.user_metadata || {};
+        return {
+          id: data.user.id,
+          username: meta.username || data.user.email?.split('@')[0] || 'user',
+          name: meta.name || 'User',
+          membershipTier: meta.membershipTier || 'Free Member',
+          createdAt: data.user.created_at,
+        };
+      }
+    } catch {}
+  }
+
+  if (memoryUsers.has(userId)) return memoryUsers.get(userId)!;
+  if (memoryUserData.has(userId)) {
+    const d = memoryUserData.get(userId)!;
+    return {
+      id: d.user.id,
+      username: d.user.username,
+      name: d.user.name,
+      membershipTier: d.user.membershipTier || 'Free Member',
+      createdAt: d.user.createdAt,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Get user data (Accounts, Posts, Rules) with Supabase persistence
+ */
+export async function getUserData(userId: string): Promise<UserDataFile | null> {
+  // Check in-memory cache
+  if (memoryUserData.has(userId)) {
+    return memoryUserData.get(userId)!;
+  }
+
+  // Check file on disk
   const filePath = getUserFilePath(userId);
   try {
     if (fs.existsSync(filePath)) {
@@ -244,49 +327,73 @@ export function getUserData(userId: string): UserDataFile | null {
       memoryUserData.set(userId, parsed);
       return parsed;
     }
-  } catch (err) {
-    console.warn(`[UserStore] Read file fallback to memory for ${userId}:`, err);
-  }
-
-  if (memoryUserData.has(userId)) {
-    return memoryUserData.get(userId)!;
-  }
-
-  const userRecord = findUserById(userId);
-  if (!userRecord) return null;
-
-  const defaultData: UserDataFile = {
-    user: {
-      id: userRecord.id,
-      username: userRecord.username,
-      name: userRecord.name,
-      createdAt: userRecord.createdAt,
-    },
-    accounts: [],
-    posts: [],
-    autoReplyRules: [],
-  };
-
-  memoryUserData.set(userId, defaultData);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(defaultData, null, 2), 'utf-8');
   } catch {}
-  return defaultData;
+
+  // Fetch from Supabase Auth user_metadata
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase.auth.admin.getUserById(userId);
+      if (data?.user) {
+        const meta = data.user.user_metadata || {};
+        const userData: UserDataFile = {
+          user: {
+            id: data.user.id,
+            username: meta.username || data.user.email?.split('@')[0] || 'user',
+            name: meta.name || 'User',
+            membershipTier: meta.membershipTier || 'Free Member',
+            createdAt: data.user.created_at,
+          },
+          accounts: meta.accounts || [],
+          posts: meta.posts || [],
+          autoReplyRules: meta.autoReplyRules || [],
+        };
+        memoryUserData.set(userId, userData);
+        return userData;
+      }
+    } catch {}
+  }
+
+  return null;
 }
 
-export function saveUserData(userId: string, data: UserDataFile) {
-  ensureStore();
+/**
+ * Save user data (persist to Supabase Auth user_metadata and local disk)
+ */
+export async function saveUserData(userId: string, data: UserDataFile) {
   memoryUserData.set(userId, data);
+
+  // 1. Persist to disk
   try {
-    const filePath = getUserFilePath(userId);
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn(`[UserStore] Save file warning for ${userId}:`, err);
+    ensureStore();
+    fs.writeFileSync(getUserFilePath(userId), JSON.stringify(data, null, 2), 'utf-8');
+  } catch {}
+
+  // 2. Persist to Supabase Auth metadata
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      await supabase.auth.admin.updateUserById(userId, {
+        user_metadata: {
+          username: data.user.username,
+          name: data.user.name,
+          membershipTier: data.user.membershipTier || 'Free Member',
+          accounts: data.accounts,
+          posts: data.posts,
+          autoReplyRules: data.autoReplyRules,
+        },
+      });
+    } catch (err) {
+      console.warn(`[UserStore] Supabase save error for ${userId}:`, err);
+    }
   }
 }
 
-export function addAccountToUser(userId: string, account: Account): boolean {
-  const data = getUserData(userId);
+/**
+ * Add or update an account for a user
+ */
+export async function addAccountToUser(userId: string, account: Account): Promise<boolean> {
+  const data = await getUserData(userId);
   if (!data) return false;
 
   const existingIdx = data.accounts.findIndex(
@@ -299,15 +406,18 @@ export function addAccountToUser(userId: string, account: Account): boolean {
     data.accounts.unshift(account);
   }
 
-  saveUserData(userId, data);
+  await saveUserData(userId, data);
   return true;
 }
 
-export function removeAccountFromUser(userId: string, accountId: string): boolean {
-  const data = getUserData(userId);
+/**
+ * Remove an account from user
+ */
+export async function removeAccountFromUser(userId: string, accountId: string): Promise<boolean> {
+  const data = await getUserData(userId);
   if (!data) return false;
 
   data.accounts = data.accounts.filter(a => a.id !== accountId);
-  saveUserData(userId, data);
+  await saveUserData(userId, data);
   return true;
 }

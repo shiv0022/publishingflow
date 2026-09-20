@@ -18,12 +18,13 @@ export interface UserProfile {
   id?: string;
   username?: string;
   name: string;
+  membershipTier?: string;
   loggedIn: boolean;
 }
 
 interface AppContextType {
   user: UserProfile;
-  login: (userData: { id?: string; username?: string; name: string }) => void;
+  login: (userData: { id?: string; username?: string; name: string; membershipTier?: string }) => void;
   logout: () => Promise<void>;
   accounts: Account[];
   posts: Post[];
@@ -72,6 +73,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             id: meData.user.id,
             username: meData.user.username,
             name: meData.user.name,
+            membershipTier: meData.user.membershipTier || 'Free Member',
             loggedIn: true,
           });
 
@@ -102,11 +104,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const login = useCallback((userData: { id?: string; username?: string; name: string }) => {
+  const login = useCallback((userData: { id?: string; username?: string; name: string; membershipTier?: string }) => {
     setUser({
       id: userData.id,
       username: userData.username,
       name: userData.name,
+      membershipTier: userData.membershipTier || 'Free Member',
       loggedIn: true,
     });
     refreshData();

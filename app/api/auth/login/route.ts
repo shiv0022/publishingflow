@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = authenticateUser(username, password);
+    const result = await authenticateUser(username, password);
     if (!result.success || !result.user) {
       return NextResponse.json(
         { error: result.error || 'Invalid credentials.' },

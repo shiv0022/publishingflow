@@ -32,6 +32,31 @@ export default function FacebookAutoDMPage() {
   const [scanResult, setScanResult] = useState<any | null>(null);
   const [autoScanEnabled, setAutoScanEnabled] = useState(false);
 
+  // Target Post selection state
+  const [targetMode, setTargetMode] = useState<'all' | 'specific'>('all');
+  const [selectedPostId, setSelectedPostId] = useState('');
+  const [availablePosts, setAvailablePosts] = useState<Array<{ id: string; caption?: string; permalink?: string }>>([]);
+  const [loadingPosts, setLoadingPosts] = useState(false);
+
+  useEffect(() => {
+    if (showAddForm && availablePosts.length === 0) {
+      setLoadingPosts(true);
+      fetch('/api/meta/feed?platform=facebook')
+        .then(r => r.json())
+        .then(data => {
+          if (data.items) {
+            setAvailablePosts(data.items.map((it: any) => ({
+              id: it.id,
+              caption: it.caption || it.title || 'Untitled Post',
+              permalink: it.permalink,
+            })));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setLoadingPosts(false));
+    }
+  }, [showAddForm, availablePosts.length]);
+
   useEffect(() => {
     if (isLoaded && !user.loggedIn) router.replace('/');
   }, [isLoaded, user.loggedIn, router]);
@@ -81,6 +106,12 @@ export default function FacebookAutoDMPage() {
 
     if (!keyword.trim()) { setFormError('Enter a trigger keyword.'); return; }
     if (!dmMessage.trim()) { setFormError('Enter a Messenger message.'); return; }
+    if (targetMode === 'specific' && !selectedPostId) {
+      setFormError('Please choose a specific Facebook post from the list.');
+      return;
+    }
+
+    const selectedPost = availablePosts.find(p => p.id === selectedPostId);
 
     try {
       const newRule = await addAutoReplyRule({
@@ -89,6 +120,8 @@ export default function FacebookAutoDMPage() {
         dmMessage: dmMessage.trim(),
         commentReply: commentReply.trim() || undefined,
         isActive: true,
+        targetPostId: targetMode === 'specific' ? selectedPostId : undefined,
+        targetPostTitle: targetMode === 'specific' ? (selectedPost?.caption?.slice(0, 45) || `Post ${selectedPostId.slice(-6)}`) : undefined,
       });
 
       await fetch('/api/auto-reply/rules', {
@@ -98,7 +131,7 @@ export default function FacebookAutoDMPage() {
       });
 
       setFormSuccess('Facebook Auto Reply rule saved!');
-      setKeyword(''); setDmMessage(''); setCommentReply('');
+      setKeyword(''); setDmMessage(''); setCommentReply(''); setSelectedPostId(''); setTargetMode('all');
       setShowAddForm(false);
       setTimeout(() => setFormSuccess(null), 4000);
     } catch (err: any) {
@@ -243,6 +276,47 @@ export default function FacebookAutoDMPage() {
               <textarea className="textarea" rows={4} placeholder="Hello! 👋 Here is your link: https://example.com" value={dmMessage} onChange={(e) => setDmMessage(e.target.value)} required />
             </div>
 
+            {/* Target Media Selection */}
+            <div>
+              <label className="form-label" style={{ marginBottom: '0.4rem' }}>Target Facebook Post / Video</label>
+              <div style={{ display: 'flex', gap: '1.25rem', marginBottom: '0.65rem' }}>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
+                  <input type="radio" name="fbTargetMode" checked={targetMode === 'all'} onChange={() => setTargetMode('all')} />
+                  <span>🌐 All Posts & Videos</span>
+                </label>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', cursor: 'pointer', fontSize: '0.88rem', fontWeight: 600 }}>
+                  <input type="radio" name="fbTargetMode" checked={targetMode === 'specific'} onChange={() => setTargetMode('specific')} />
+                  <span>🎯 Specific Post / Video</span>
+                </label>
+              </div>
+
+              {targetMode === 'specific' && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  {loadingPosts ? (
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-dim)' }}>Loading your recent Facebook posts...</div>
+                  ) : availablePosts.length === 0 ? (
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Paste Facebook Post ID"
+                      value={selectedPostId}
+                      onChange={(e) => setSelectedPostId(e.target.value.trim())}
+                      required
+                    />
+                  ) : (
+                    <select className="input" value={selectedPostId} onChange={(e) => setSelectedPostId(e.target.value)} required={targetMode === 'specific'}>
+                      <option value="">-- Choose target Facebook Post --</option>
+                      {availablePosts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.caption ? p.caption.slice(0, 60) : `Post ${p.id}`}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="form-label">Public Comment Reply (Optional)</label>
               <input type="text" className="input" placeholder="e.g. Check Messenger! 💬" value={commentReply} onChange={(e) => setCommentReply(e.target.value)} />
@@ -285,6 +359,15 @@ export default function FacebookAutoDMPage() {
                     <span style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', background: '#fef3c7', color: '#92400e', fontWeight: 800, fontSize: '0.82rem' }}>
                       Keyword: &quot;{rule.keyword}&quot;
                     </span>
+                    {rule.targetPostId ? (
+                      <span style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', background: '#eff6ff', color: '#1d4ed8', fontWeight: 700, fontSize: '0.78rem' }}>
+                        🎯 {rule.targetPostTitle || 'Specific Post'}
+                      </span>
+                    ) : (
+                      <span style={{ padding: '0.25rem 0.65rem', borderRadius: '6px', background: '#f1f5f9', color: '#475569', fontWeight: 600, fontSize: '0.78rem' }}>
+                        🌐 All Posts
+                      </span>
+                    )}
                     <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', fontWeight: 600 }}>
                       🚀 {rule.triggerCount || 0} DMs
                     </span>

@@ -63,6 +63,10 @@ export async function processCommentForAutoReply(
   // 3. Find matching rule
   const cleanComment = commentText.trim().toLowerCase();
   const matchedRule = activeRules.find(r => {
+    // If rule is locked to a specific post/video, ensure mediaId matches
+    if (r.targetPostId && r.targetPostId !== 'all' && mediaId && r.targetPostId !== mediaId) {
+      return false;
+    }
     if (r.keyword === '*') return true;
     const cleanKw = r.keyword.trim().toLowerCase();
     return cleanComment.includes(cleanKw);
