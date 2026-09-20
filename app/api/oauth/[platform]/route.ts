@@ -38,8 +38,8 @@ export async function GET(
     }
 
     const redirectUri = getFacebookOAuthRedirectUri(request);
-    // Request full unified Meta permissions so 1 authorization connects both FB Page and linked Instagram account
-    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management';
+    // Request full unified Meta permissions including comment management and private DM replies
+    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,pages_messaging,pages_read_user_content,pages_manage_engagement,instagram_basic,instagram_content_publish,instagram_manage_comments,instagram_manage_messages,business_management';
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=${encodeURIComponent(scopes)}&response_type=code${stateQuery}`;
@@ -57,7 +57,7 @@ export async function GET(
     }
 
     const redirectUri = getInstagramOAuthRedirectUri(request);
-    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list,business_management';
+    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,pages_messaging,pages_read_user_content,pages_manage_engagement,instagram_basic,instagram_content_publish,instagram_manage_comments,instagram_manage_messages,business_management';
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
