@@ -201,25 +201,28 @@ export async function registerUser(data: { email?: string; username?: string; na
 /**
  * Authenticate user via Supabase Auth (with local fallback)
  */
-export async function authenticateUser(usernameOrEmail: string, password: string): Promise<{
+export async function authenticateUser(emailInput: string, password: string): Promise<{
   success: boolean;
-  user?: { id: string; username: string; name: string; membershipTier?: string };
+  user?: { id: string; username: string; name: string; email?: string; membershipTier?: string };
   error?: string;
 }> {
-  const cleanInput = usernameOrEmail.trim().toLowerCase();
+  const cleanEmail = emailInput.trim().toLowerCase();
+
+  // Enforce strict email requirement to prevent collisions between identical usernames
+  if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+    return {
+      success: false,
+      error: 'Please enter your registered email address (e.g., yourname@gmail.com). Usernames cannot be used to log in because emails are 100% unique.',
+    };
+  }
+
   const supabase = createServerSupabaseClient();
 
   if (supabase) {
     try {
-      // 1. Resolve email
-      let email = cleanInput;
-      if (!cleanInput.includes('@')) {
-        email = formatEmailForUsername(cleanInput);
-      }
-
-      // Try sign in
+      // 1. Direct secure authentication with unique email
       const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
-        email,
+        email: cleanEmail,
         password,
       });
 
@@ -228,8 +231,9 @@ export async function authenticateUser(usernameOrEmail: string, password: string
         const meta = u.user_metadata || {};
         const userObj = {
           id: u.id,
-          username: meta.username || cleanInput.split('@')[0],
-          name: meta.name || cleanInput.split('@')[0],
+          username: meta.username || cleanEmail.split('@')[0],
+          name: meta.name || cleanEmail.split('@')[0],
+          email: u.email || cleanEmail,
           membershipTier: meta.membershipTier || 'Free Member',
         };
 
@@ -246,32 +250,7 @@ export async function authenticateUser(usernameOrEmail: string, password: string
         return { success: true, user: userObj };
       }
 
-      // If direct email failed, attempt lookup by username in user_metadata
-      const { data: userList } = await supabase.auth.admin.listUsers();
-      const matched = userList?.users?.find(
-        u => u.user_metadata?.username === cleanInput || u.email === cleanInput
-      );
-
-      if (matched && matched.email) {
-        const { data: retryData, error: retryErr } = await supabase.auth.signInWithPassword({
-          email: matched.email,
-          password,
-        });
-
-        if (!retryErr && retryData.user) {
-          const u = retryData.user;
-          const meta = u.user_metadata || {};
-          const userObj = {
-            id: u.id,
-            username: meta.username || cleanInput,
-            name: meta.name || cleanInput,
-            membershipTier: meta.membershipTier || 'Free Member',
-          };
-          return { success: true, user: userObj };
-        }
-      }
-
-      return { success: false, error: 'Incorrect username or password. Please try again.' };
+      return { success: false, error: 'Incorrect email or password. Please try again.' };
     } catch (err: any) {
       console.error('[UserStore Supabase Login Error]:', err);
     }
@@ -279,7 +258,7 @@ export async function authenticateUser(usernameOrEmail: string, password: string
 
   // Fallback in-memory / local files
   for (const [id, u] of memoryUsers.entries()) {
-    if (u.username === cleanInput) {
+    if (u.username === cleanEmail || (u as any).email === cleanEmail) {
       return { success: true, user: u };
     }
   }

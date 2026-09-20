@@ -4,19 +4,27 @@ import { authenticateUser } from '@/lib/userStore';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { username, password } = body;
+    const email = (body.email || body.username || '').trim().toLowerCase();
+    const password = body.password;
 
-    if (!username || !password) {
+    if (!email || !password) {
       return NextResponse.json(
-        { error: 'Both username and password are required.' },
+        { error: 'Both email and password are required.' },
         { status: 400 }
       );
     }
 
-    const result = await authenticateUser(username, password);
+    if (!email.includes('@') || !email.includes('.')) {
+      return NextResponse.json(
+        { error: 'Please enter a valid email address (e.g., name@gmail.com). Login is restricted to emails to prevent account collisions.' },
+        { status: 400 }
+      );
+    }
+
+    const result = await authenticateUser(email, password);
     if (!result.success || !result.user) {
       return NextResponse.json(
-        { error: result.error || 'Invalid credentials.' },
+        { error: result.error || 'Invalid email or password.' },
         { status: 401 }
       );
     }

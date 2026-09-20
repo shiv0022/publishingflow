@@ -42,13 +42,19 @@ export default function LoginPage() {
       return;
     }
 
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    if (!cleanEmail.includes('@') || !cleanEmail.includes('.')) {
+      setErrorMsg('Please enter a valid registered email address (e.g. name@gmail.com).');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: loginEmail.trim(),
+          email: cleanEmail,
           password: loginPassword,
         }),
       });
@@ -268,9 +274,9 @@ export default function LoginPage() {
               <div style={{ position: 'relative' }}>
                 <Mail size={16} color="#94a3b8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
                 <input
-                  type="text"
+                  type="email"
                   className="input"
-                  placeholder="name@example.com or username"
+                  placeholder="Enter registered email (e.g. name@gmail.com)"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   style={{ paddingLeft: '2.4rem', fontSize: '0.92rem' }}
