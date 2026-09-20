@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { AutoReplyRule } from '@/types';
+import { createServerSupabaseClient } from './supabaseServer';
 
 function isServerless(): boolean {
   return Boolean(
@@ -22,10 +23,6 @@ function getRulesFile(): string {
   return path.join(getDataDir(), 'auto_reply_rules.json');
 }
 
-function getRepliedFile(): string {
-  return path.join(getDataDir(), 'auto_reply_replied.json');
-}
-
 const defaultRules: AutoReplyRule[] = [
   {
     id: 'default-rule-link',
@@ -40,7 +37,7 @@ const defaultRules: AutoReplyRule[] = [
 ];
 
 let inMemoryRules: AutoReplyRule[] = [...defaultRules];
-let inMemoryReplied: { commentId: string; platform: string; ruleId: string; commentText: string; repliedAt: string }[] = [];
+const inMemoryRepliedSet = new Set<string>();
 
 function ensureDataDir() {
   try {
@@ -53,7 +50,38 @@ function ensureDataDir() {
   }
 }
 
-export function getServerRules(): AutoReplyRule[] {
+/**
+ * Get all active Auto Reply rules.
+ * Synchronizes with Supabase Auth user_metadata so rules persist across Vercel lambda cold starts.
+ */
+export async function getServerRules(): Promise<AutoReplyRule[]> {
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      const { data: userList, error: listErr } = await supabase.auth.admin.listUsers();
+      if (!listErr && userList?.users) {
+        const cloudRules: AutoReplyRule[] = [];
+        for (const u of userList.users) {
+          const rules = u.user_metadata?.autoReplyRules;
+          if (Array.isArray(rules)) {
+            for (const r of rules) {
+              if (r && r.id && !cloudRules.some(existing => existing.id === r.id)) {
+                cloudRules.push(r);
+              }
+            }
+          }
+        }
+        if (cloudRules.length > 0) {
+          inMemoryRules = cloudRules;
+          return cloudRules;
+        }
+      }
+    } catch (err) {
+      console.warn('[AutoReplyStore] Supabase listUsers rules error:', err);
+    }
+  }
+
+  // Local fallback
   ensureDataDir();
   const rulesFile = getRulesFile();
   try {
@@ -65,10 +93,8 @@ export function getServerRules(): AutoReplyRule[] {
         return parsed;
       }
     }
-    fs.writeFileSync(rulesFile, JSON.stringify(defaultRules, null, 2), 'utf-8');
-  } catch (err) {
-    console.warn('[AutoReplyStore] Reading rules fallback to memory:', err);
-  }
+  } catch {}
+
   return inMemoryRules;
 }
 
@@ -82,50 +108,68 @@ export function saveServerRules(rules: AutoReplyRule[]) {
   }
 }
 
-export function addServerRule(rule: AutoReplyRule) {
-  const rules = getServerRules();
+export async function addServerRule(rule: AutoReplyRule) {
+  const rules = await getServerRules();
   const updated = [rule, ...rules.filter(r => r.id !== rule.id)];
   saveServerRules(updated);
   return rule;
 }
 
-export function updateServerRule(id: string, updates: Partial<AutoReplyRule>) {
-  const rules = getServerRules();
+export async function updateServerRule(id: string, updates: Partial<AutoReplyRule>) {
+  const rules = await getServerRules();
   const updated = rules.map(r => r.id === id ? { ...r, ...updates } : r);
   saveServerRules(updated);
   return updated.find(r => r.id === id);
 }
 
-export function deleteServerRule(id: string) {
-  const rules = getServerRules();
+export async function deleteServerRule(id: string) {
+  const rules = await getServerRules();
   const updated = rules.filter(r => r.id !== id);
   saveServerRules(updated);
 }
 
-export function incrementServerRuleTrigger(id: string) {
-  const rules = getServerRules();
+export async function incrementServerRuleTrigger(id: string) {
+  const rules = await getServerRules();
   const updated = rules.map(r =>
     r.id === id ? { ...r, triggerCount: (r.triggerCount || 0) + 1 } : r
   );
   saveServerRules(updated);
 }
 
-export function getRepliedComments() {
-  ensureDataDir();
-  const repliedFile = getRepliedFile();
-  try {
-    if (fs.existsSync(repliedFile)) {
-      const raw = fs.readFileSync(repliedFile, 'utf-8');
-      inMemoryReplied = JSON.parse(raw);
-      return inMemoryReplied;
-    }
-  } catch {}
-  return inMemoryReplied;
-}
+/**
+ * Check if a comment has already been replied to.
+ * Uses persistent Supabase audit_logs so comment IDs are NEVER double-processed,
+ * even across serverless restarts or multiple scan triggers.
+ */
+export async function hasRepliedToComment(commentId: string): Promise<boolean> {
+  if (!commentId) return false;
 
-export function hasRepliedToComment(commentId: string): boolean {
-  const replied = getRepliedComments();
-  return replied.some(r => r.commentId === commentId);
+  // 1. Fast in-memory check
+  if (inMemoryRepliedSet.has(commentId)) {
+    return true;
+  }
+
+  // 2. Persistent Supabase audit_logs check
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('id')
+        .eq('action', 'AUTO_REPLY_TRIGGERED')
+        .eq('entity_id', commentId)
+        .limit(1);
+
+      if (data && data.length > 0) {
+        inMemoryRepliedSet.add(commentId);
+        return true;
+      }
+    } catch (err) {
+      console.warn('[AutoReplyStore] Error checking Supabase audit_logs:', err);
+    }
+  }
+
+  return false;
 }
 
 export function markCommentReplied(record: {
@@ -135,9 +179,8 @@ export function markCommentReplied(record: {
   commentText: string;
   repliedAt: string;
 }) {
-  ensureDataDir();
-  inMemoryReplied.push(record);
-  try {
-    fs.writeFileSync(getRepliedFile(), JSON.stringify(inMemoryReplied, null, 2), 'utf-8');
-  } catch {}
+  if (record.commentId) {
+    inMemoryRepliedSet.add(record.commentId);
+  }
 }
+

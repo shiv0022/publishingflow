@@ -9,6 +9,7 @@ export interface UserRecord {
   id: string;
   username: string;
   name: string;
+  email?: string;
   membershipTier?: string;
   passwordHash?: string;
   salt?: string;
@@ -20,6 +21,7 @@ export interface UserDataFile {
     id: string;
     username: string;
     name: string;
+    email?: string;
     membershipTier?: string;
     createdAt: string;
   };
@@ -273,18 +275,44 @@ export async function findUserById(userId: string): Promise<UserRecord | null> {
   const supabase = createServerSupabaseClient();
   if (supabase) {
     try {
-      const { data } = await supabase.auth.admin.getUserById(userId);
-      if (data?.user) {
-        const meta = data.user.user_metadata || {};
+      // 1. Direct fetch if UUID
+      if (!userId.startsWith('usr_')) {
+        const { data } = await supabase.auth.admin.getUserById(userId);
+        if (data?.user) {
+          const meta = data.user.user_metadata || {};
+          return {
+            id: data.user.id,
+            username: meta.username || data.user.email?.split('@')[0] || 'user',
+            name: meta.name || 'User',
+            email: data.user.email,
+            membershipTier: meta.membershipTier || 'Free Member',
+            createdAt: data.user.created_at,
+          };
+        }
+      }
+
+      // 2. Lookup legacy or non-UUID session
+      const cleanName = userId.replace(/^usr_/, '').toLowerCase();
+      const { data: userList } = await supabase.auth.admin.listUsers();
+      const matched = userList?.users?.find(
+        u => u.user_metadata?.username?.toLowerCase() === cleanName ||
+             u.email?.toLowerCase().startsWith(cleanName) ||
+             u.id === userId
+      );
+      if (matched) {
+        const meta = matched.user_metadata || {};
         return {
-          id: data.user.id,
-          username: meta.username || data.user.email?.split('@')[0] || 'user',
-          name: meta.name || 'User',
+          id: matched.id,
+          username: meta.username || matched.email?.split('@')[0] || cleanName,
+          name: meta.name || cleanName,
+          email: matched.email,
           membershipTier: meta.membershipTier || 'Free Member',
-          createdAt: data.user.created_at,
+          createdAt: matched.created_at,
         };
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[UserStore findUserById error]:', err);
+    }
   }
 
   if (memoryUsers.has(userId)) return memoryUsers.get(userId)!;
@@ -306,6 +334,51 @@ export async function findUserById(userId: string): Promise<UserRecord | null> {
  * Get user data (Accounts, Posts, Rules) with Supabase persistence
  */
 export async function getUserData(userId: string): Promise<UserDataFile | null> {
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      let targetUser: any = null;
+
+      // 1. Direct fetch if valid UUID
+      if (!userId.startsWith('usr_')) {
+        const { data } = await supabase.auth.admin.getUserById(userId);
+        if (data?.user) targetUser = data.user;
+      }
+
+      // 2. Fallback search by username/email in Supabase Auth
+      if (!targetUser) {
+        const cleanName = userId.replace(/^usr_/, '').toLowerCase();
+        const { data: userList } = await supabase.auth.admin.listUsers();
+        targetUser = userList?.users?.find(
+          u => u.id === userId ||
+               u.user_metadata?.username?.toLowerCase() === cleanName ||
+               u.email?.toLowerCase().startsWith(cleanName)
+        );
+      }
+
+      if (targetUser) {
+        const meta = targetUser.user_metadata || {};
+        const userData: UserDataFile = {
+          user: {
+            id: targetUser.id,
+            username: meta.username || targetUser.email?.split('@')[0] || 'user',
+            name: meta.name || 'User',
+            membershipTier: meta.membershipTier || 'Free Member',
+            createdAt: targetUser.created_at,
+          },
+          accounts: meta.accounts || [],
+          posts: meta.posts || [],
+          autoReplyRules: meta.autoReplyRules || [],
+        };
+        memoryUserData.set(userId, userData);
+        memoryUserData.set(targetUser.id, userData);
+        return userData;
+      }
+    } catch (err) {
+      console.warn('[UserStore getUserData Supabase Error]:', err);
+    }
+  }
+
   // Check in-memory cache
   if (memoryUserData.has(userId)) {
     return memoryUserData.get(userId)!;
@@ -322,31 +395,6 @@ export async function getUserData(userId: string): Promise<UserDataFile | null> 
     }
   } catch {}
 
-  // Fetch from Supabase Auth user_metadata
-  const supabase = createServerSupabaseClient();
-  if (supabase) {
-    try {
-      const { data } = await supabase.auth.admin.getUserById(userId);
-      if (data?.user) {
-        const meta = data.user.user_metadata || {};
-        const userData: UserDataFile = {
-          user: {
-            id: data.user.id,
-            username: meta.username || data.user.email?.split('@')[0] || 'user',
-            name: meta.name || 'User',
-            membershipTier: meta.membershipTier || 'Free Member',
-            createdAt: data.user.created_at,
-          },
-          accounts: meta.accounts || [],
-          posts: meta.posts || [],
-          autoReplyRules: meta.autoReplyRules || [],
-        };
-        memoryUserData.set(userId, userData);
-        return userData;
-      }
-    } catch {}
-  }
-
   return null;
 }
 
@@ -355,6 +403,9 @@ export async function getUserData(userId: string): Promise<UserDataFile | null> 
  */
 export async function saveUserData(userId: string, data: UserDataFile) {
   memoryUserData.set(userId, data);
+  if (data.user?.id) {
+    memoryUserData.set(data.user.id, data);
+  }
 
   // 1. Persist to disk
   try {
@@ -366,7 +417,18 @@ export async function saveUserData(userId: string, data: UserDataFile) {
   const supabase = createServerSupabaseClient();
   if (supabase) {
     try {
-      await supabase.auth.admin.updateUserById(userId, {
+      let targetUuid = data.user?.id || userId;
+      if (targetUuid.startsWith('usr_')) {
+        const cleanName = targetUuid.replace(/^usr_/, '').toLowerCase();
+        const { data: userList } = await supabase.auth.admin.listUsers();
+        const matched = userList?.users?.find(
+          u => u.user_metadata?.username?.toLowerCase() === cleanName ||
+               u.email?.toLowerCase().startsWith(cleanName)
+        );
+        if (matched) targetUuid = matched.id;
+      }
+
+      await supabase.auth.admin.updateUserById(targetUuid, {
         user_metadata: {
           username: data.user.username,
           name: data.user.name,

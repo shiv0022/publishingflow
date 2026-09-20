@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerRules, saveServerRules, addServerRule, updateServerRule, deleteServerRule } from '@/lib/autoReplyStore';
 
 export async function GET() {
-  const rules = getServerRules();
+  const rules = await getServerRules();
   return NextResponse.json({ success: true, rules });
 }
 
@@ -22,9 +22,11 @@ export async function POST(req: NextRequest) {
       isActive: body.isActive !== undefined ? body.isActive : true,
       triggerCount: body.triggerCount || 0,
       createdAt: body.createdAt || new Date().toISOString(),
+      targetPostId: body.targetPostId || undefined,
+      targetPostTitle: body.targetPostTitle || undefined,
     };
 
-    addServerRule(newRule);
+    await addServerRule(newRule);
     return NextResponse.json({ success: true, rule: newRule });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -37,7 +39,7 @@ export async function PUT(req: NextRequest) {
     if (!body.id) {
       return NextResponse.json({ error: 'Rule ID is required.' }, { status: 400 });
     }
-    const updated = updateServerRule(body.id, body);
+    const updated = await updateServerRule(body.id, body);
     return NextResponse.json({ success: true, rule: updated });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
@@ -50,6 +52,6 @@ export async function DELETE(req: NextRequest) {
   if (!id) {
     return NextResponse.json({ error: 'Rule ID is required.' }, { status: 400 });
   }
-  deleteServerRule(id);
+  await deleteServerRule(id);
   return NextResponse.json({ success: true });
 }

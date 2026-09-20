@@ -45,13 +45,13 @@ export async function processCommentForAutoReply(
     return { triggered: false, skipReason: 'Missing comment ID or text' };
   }
 
-  // 1. Check if already replied
-  if (hasRepliedToComment(commentId)) {
+  // 1. Check if already replied (durable Supabase audit log check)
+  if (await hasRepliedToComment(commentId)) {
     return { triggered: false, skipReason: 'Already replied to this comment' };
   }
 
-  // 2. Load active rules
-  const allRules = getServerRules();
+  // 2. Load active rules (synchronized from Supabase Auth)
+  const allRules = await getServerRules();
   const activeRules = allRules.filter(
     r => r.isActive && (r.platform === 'All' || r.platform.toLowerCase() === platform.toLowerCase())
   );
@@ -157,7 +157,7 @@ export async function processCommentForAutoReply(
       commentText,
       repliedAt: new Date().toISOString(),
     });
-    incrementServerRuleTrigger(matchedRule.id);
+    await incrementServerRuleTrigger(matchedRule.id);
 
     await logAudit({
       action: 'AUTO_REPLY_TRIGGERED',

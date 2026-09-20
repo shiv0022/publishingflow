@@ -16,6 +16,7 @@ export default function FacebookAutoDMPage() {
   const {
     user, isLoaded, accounts, autoReplyRules,
     addAutoReplyRule, toggleAutoReplyRule, deleteAutoReplyRule, incrementRuleTriggerCount,
+    refreshData,
   } = useApp();
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -30,7 +31,23 @@ export default function FacebookAutoDMPage() {
   } | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<any | null>(null);
-  const [autoScanEnabled, setAutoScanEnabled] = useState(false);
+  const [autoScanEnabled, setAutoScanEnabled] = useState(true);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('pf_fb_autoscan');
+      if (stored !== null) {
+        setAutoScanEnabled(stored === 'true');
+      }
+    }
+  }, []);
+
+  const handleToggleAutoScan = (enabled: boolean) => {
+    setAutoScanEnabled(enabled);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('pf_fb_autoscan', String(enabled));
+    }
+  };
 
   // Target Post selection state
   const [targetMode, setTargetMode] = useState<'all' | 'specific'>('all');
@@ -130,6 +147,8 @@ export default function FacebookAutoDMPage() {
         body: JSON.stringify(newRule),
       });
 
+      await refreshData();
+
       setFormSuccess('Facebook Auto Reply rule saved!');
       setKeyword(''); setDmMessage(''); setCommentReply(''); setSelectedPostId(''); setTargetMode('all');
       setShowAddForm(false);
@@ -220,7 +239,7 @@ export default function FacebookAutoDMPage() {
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer' }}>
-              <input type="checkbox" checked={autoScanEnabled} onChange={(e) => setAutoScanEnabled(e.target.checked)} style={{ width: '16px', height: '16px' }} />
+              <input type="checkbox" checked={autoScanEnabled} onChange={(e) => handleToggleAutoScan(e.target.checked)} style={{ width: '16px', height: '16px' }} />
               Auto-scan 20s
             </label>
             <button onClick={handleLiveScan} disabled={isScanning} className="btn btn-primary" style={{ padding: '0.65rem 1.15rem', fontSize: '0.85rem', background: '#1877f2' }}>
