@@ -95,13 +95,23 @@ export async function POST(req: NextRequest) {
           const pageId = oauthAccountId || 'me';
           const postIds: string[] = [];
 
-          // Published posts
+          // Published posts & Page posts
           try {
             const pRes = await fetch(
               `https://graph.facebook.com/v22.0/${pageId}/published_posts?fields=id&limit=10&access_token=${accessToken}`
             );
             const pData = await pRes.json();
             for (const p of pData.data || []) postIds.push(p.id);
+          } catch {}
+
+          try {
+            const pRes2 = await fetch(
+              `https://graph.facebook.com/v22.0/${pageId}/posts?fields=id&limit=10&access_token=${accessToken}`
+            );
+            const pData2 = await pRes2.json();
+            for (const p of pData2.data || []) {
+              if (!postIds.includes(p.id)) postIds.push(p.id);
+            }
           } catch {}
 
           // Videos / Reels
