@@ -306,19 +306,6 @@ export default function LoginPage() {
               <span>{loading ? 'Authenticating...' : 'Sign In to Dashboard'}</span>
               <ArrowRight size={18} />
             </button>
-
-            <div style={{
-              background: '#f8fafc',
-              border: '1px dashed #cbd5e1',
-              borderRadius: '10px',
-              padding: '0.75rem',
-              textAlign: 'center',
-              fontSize: '0.8rem',
-              color: '#64748b',
-              marginTop: '0.5rem',
-            }}>
-              💡 Pre-configured profile: <strong style={{ color: '#0f172a' }}>rachit</strong> / password: <strong style={{ color: '#0f172a' }}>rachit123</strong>
-            </div>
           </form>
         ) : (
           /* Create Profile Form */

@@ -49,51 +49,9 @@ const defaultRachitData: UserDataFile = {
     name: 'Rachit Chauhan',
     createdAt: '2026-09-20T00:00:00.000Z',
   },
-  accounts: [
-    {
-      id: 'cea3568f-c386-466a-8eb4-9e23f7c1dfee',
-      clientName: 'Recall X Marketing',
-      platform: 'Facebook',
-      connectionType: 'oauth',
-      connectionStatus: 'Connected',
-      oauthAccountId: '1277040138828478',
-      createdAt: '2026-09-13T14:05:22.822Z',
-      updatedAt: '2026-09-20T00:00:00.000Z',
-    },
-    {
-      id: '3a51236d-5f51-4663-86db-af37fcbd233d',
-      clientName: 'th_rachit_chauhan',
-      platform: 'Instagram',
-      connectionType: 'oauth',
-      connectionStatus: 'Connected',
-      oauthAccountId: '17841426006285626',
-      createdAt: '2026-09-13T14:05:23.900Z',
-      updatedAt: '2026-09-20T00:00:00.000Z',
-    },
-  ],
+  accounts: [],
   posts: [],
-  autoReplyRules: [
-    {
-      id: 'rule-ig-link',
-      platform: 'Instagram',
-      keyword: 'LINK',
-      dmMessage: 'Hey! 👋 Here is your link from our Reel. Enjoy!',
-      commentReply: 'Check your DM! Sent 📩',
-      isActive: true,
-      triggerCount: 12,
-      createdAt: '2026-09-20T00:00:00.000Z',
-    },
-    {
-      id: 'rule-fb-price',
-      platform: 'Facebook',
-      keyword: 'PRICE',
-      dmMessage: 'Hello! Complete pricing details are sent via Messenger.',
-      commentReply: 'Details sent in Messenger! 💬',
-      isActive: true,
-      triggerCount: 5,
-      createdAt: '2026-09-20T00:00:00.000Z',
-    },
-  ],
+  autoReplyRules: [],
 };
 
 const memoryUsers: Map<string, UserRecord> = new Map([

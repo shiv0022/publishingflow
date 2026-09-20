@@ -40,7 +40,7 @@ export async function GET(
     const redirectUri = getFacebookOAuthRedirectUri(request);
     // Request full unified Meta permissions so 1 authorization connects both FB Page and linked Instagram account,
     // plus comment management and messaging permissions for Auto-Reply & Auto-DM
-    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management,instagram_manage_comments,instagram_manage_messages,pages_messaging';
+    const scopes = 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts,instagram_basic,instagram_content_publish,business_management,instagram_manage_comments,instagram_manage_messages';
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=${encodeURIComponent(scopes)}&response_type=code${stateQuery}`;
@@ -58,7 +58,7 @@ export async function GET(
     }
 
     const redirectUri = getInstagramOAuthRedirectUri(request);
-    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list,business_management,instagram_manage_comments,instagram_manage_messages,pages_messaging';
+    const scopes = 'public_profile,instagram_basic,instagram_content_publish,pages_show_list,business_management,instagram_manage_comments,instagram_manage_messages';
 
     const authUrl = `https://www.facebook.com/v22.0/dialog/oauth?client_id=${clientId}&redirect_uri=${encodeURIComponent(
       redirectUri
