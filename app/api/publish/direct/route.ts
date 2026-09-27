@@ -148,24 +148,28 @@ export async function POST(request: NextRequest) {
         if (account.platform === 'Instagram') {
           const igUserId = oauthAccountId || 'me';
 
-          if (videoBuffer) {
+          // NOTE: Meta Instagram Graph API rejects scheduled_publish_time with "(#3) User must be on whitelist".
+          // Standard developer accounts CANNOT use native Meta scheduling on Instagram.
+          // Therefore, scheduled posts are saved to the database (status: 'scheduled')
+          // and published automatically at the scheduled time by our background worker / cron!
+          if (scheduleTimeSeconds) {
+            externalPostId = `scheduled-ig-${Date.now()}`;
+          } else if (videoBuffer) {
             const igRes = await uploadDirectToInstagramReels({
               videoBuffer,
               fileSizeBytes,
               caption: messageContent,
               igUserId,
               accessToken,
-              scheduleTimeSeconds,
             });
             externalPostId = igRes.postId;
           } else if (mediaUrlParam) {
-            // Meta downloads directly from transit URL
+            // Meta downloads directly from transit URL for immediate publishing
             const containerBody: Record<string, any> = {
               media_type: 'REELS',
               video_url: mediaUrlParam,
               caption: messageContent,
               access_token: accessToken,
-              ...(scheduleTimeSeconds ? { scheduled_publish_time: scheduleTimeSeconds } : {}),
             };
 
             const initRes = await fetch(`https://graph.facebook.com/v22.0/${igUserId}/media`, {
@@ -179,36 +183,32 @@ export async function POST(request: NextRequest) {
             }
             const containerId = initData.id;
 
-            if (scheduleTimeSeconds) {
-              externalPostId = containerId;
-            } else {
-              // Wait for Meta to finish downloading from transit URL
-              let isReady = false;
-              for (let i = 0; i < 20; i++) {
-                await new Promise((r) => setTimeout(r, 3000));
-                const statusRes = await fetch(
-                  `https://graph.facebook.com/v22.0/${containerId}?fields=status_code,status&access_token=${accessToken}`
-                );
-                const statusData = await statusRes.json();
-                if (statusData.status_code === 'FINISHED') {
-                  isReady = true;
-                  break;
-                } else if (statusData.status_code === 'ERROR') {
-                  throw new Error('Meta video processing failed. Please ensure 9:16 vertical MP4 format.');
-                }
+            // Wait for Meta to finish downloading from transit URL
+            let isReady = false;
+            for (let i = 0; i < 20; i++) {
+              await new Promise((r) => setTimeout(r, 3000));
+              const statusRes = await fetch(
+                `https://graph.facebook.com/v22.0/${containerId}?fields=status_code,status&access_token=${accessToken}`
+              );
+              const statusData = await statusRes.json();
+              if (statusData.status_code === 'FINISHED') {
+                isReady = true;
+                break;
+              } else if (statusData.status_code === 'ERROR') {
+                throw new Error('Meta video processing failed. Please ensure 9:16 vertical MP4 format.');
               }
-
-              const pubRes = await fetch(`https://graph.facebook.com/v22.0/${igUserId}/media_publish`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ creation_id: containerId, access_token: accessToken }),
-              });
-              const pubData = await pubRes.json();
-              if (!pubRes.ok || !pubData.id) {
-                throw new Error(pubData?.error?.message || 'Instagram Reels publish failed');
-              }
-              externalPostId = pubData.id;
             }
+
+            const pubRes = await fetch(`https://graph.facebook.com/v22.0/${igUserId}/media_publish`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ creation_id: containerId, access_token: accessToken }),
+            });
+            const pubData = await pubRes.json();
+            if (!pubRes.ok || !pubData.id) {
+              throw new Error(pubData?.error?.message || 'Instagram Reels publish failed');
+            }
+            externalPostId = pubData.id;
           } else {
             throw new Error('Instagram Reels requires a video file or valid video URL.');
           }
@@ -390,8 +390,10 @@ export async function POST(request: NextRequest) {
   }
 
     // Instant cleanup of temporary transit file: zero permanent storage in Supabase!
+    // NOTE: If post is scheduled for future publishing, preserve transit file until scheduled worker executes!
+    const anyScheduled = targetSlots.some((s) => s.seconds !== null);
     const tempStoragePath = (formData.get('tempStoragePath') as string) || '';
-    if (tempStoragePath) {
+    if (tempStoragePath && !anyScheduled) {
       try {
         await supabase.storage.from('media').remove([tempStoragePath]);
         console.log(`[Zero Storage Cleanup]: Successfully purged ${tempStoragePath}`);

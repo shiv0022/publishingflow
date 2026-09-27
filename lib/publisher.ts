@@ -370,6 +370,20 @@ export async function executePublishPost(postId: string): Promise<PublishResult>
       })
       .eq('id', postId);
 
+    // If media was a temporary transit file, purge it now that it is published (0 MB permanent storage)
+    if (post.media_url && post.media_url.includes('temp-transit/')) {
+      try {
+        const parts = post.media_url.split('/media/');
+        if (parts[1]) {
+          const path = decodeURIComponent(parts[1].split('?')[0]);
+          await supabase.storage.from('media').remove([path]);
+          console.log(`[Scheduled Zero-Storage Cleanup]: Purged transit file ${path}`);
+        }
+      } catch (cleanErr) {
+        console.warn('Transit purge warning:', cleanErr);
+      }
+    }
+
     await logAudit({
       action: 'POST_PUBLISHED',
       entityType: 'post',

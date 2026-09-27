@@ -61,9 +61,9 @@ export async function uploadDirectToInstagramReels({
     access_token: accessToken,
   };
 
-  if (scheduleTimeSeconds) {
-    containerBody.scheduled_publish_time = scheduleTimeSeconds;
-  }
+  // NOTE: scheduled_publish_time is deliberately NOT passed to Instagram container.
+  // Meta Instagram Graph API restricts native scheduled_publish_time to whitelisted Facebook Marketing Partners.
+  // All standard scheduled Instagram posts are scheduled in the app database and published automatically by the background worker.
 
   const initUrl = `https://graph.facebook.com/${META_GRAPH_VERSION}/${igUserId}/media`;
   const initRes = await fetch(initUrl, {
