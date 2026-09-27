@@ -17,6 +17,7 @@ import {
   X,
   ChevronRight,
   UploadCloud,
+  Calendar,
 } from 'lucide-react';
 import { InstagramIcon, FacebookIcon } from '@/components/PlatformIcons';
 
@@ -33,6 +34,13 @@ const menuItems = [
     icon: UploadCloud,
     description: 'Post videos, reels & photos',
     accent: '#4f46e5',
+  },
+  {
+    href: '/content',
+    label: 'Content & Schedule',
+    icon: Calendar,
+    description: 'Scheduled queue & live feed',
+    accent: '#0891b2',
   },
   {
     href: '/connect',

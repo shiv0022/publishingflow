@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getUserData, saveUserData, findUserById } from '@/lib/userStore';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { mapPostFromDb } from '@/lib/supabase';
 
 export async function GET(req: NextRequest) {
   const sessionUserId = req.cookies.get('pf_session_user_id')?.value;
@@ -10,6 +12,32 @@ export async function GET(req: NextRequest) {
   const userData = await getUserData(sessionUserId);
   if (!userData) {
     return NextResponse.json({ error: 'User data file not found.' }, { status: 404 });
+  }
+
+  // Merge posts from Supabase DB so scheduled and direct posts are always visible
+  const supabase = createServerSupabaseClient();
+  if (supabase) {
+    try {
+      const { data: dbPosts } = await supabase
+        .from('posts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (dbPosts && dbPosts.length > 0) {
+        const mapped = dbPosts.map(mapPostFromDb);
+        const map = new Map();
+        for (const p of [...mapped, ...(userData.posts || [])]) {
+          map.set(p.id, p);
+        }
+        userData.posts = Array.from(map.values()).sort((a, b) => {
+          const tA = new Date(a.scheduledAt || a.createdAt).getTime();
+          const tB = new Date(b.scheduledAt || b.createdAt).getTime();
+          return tB - tA;
+        });
+      }
+    } catch (e) {
+      console.warn('[UserData Supabase Merge Warning]:', e);
+    }
   }
 
   return NextResponse.json({

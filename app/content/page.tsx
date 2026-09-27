@@ -9,7 +9,7 @@ import { InstagramIcon, FacebookIcon } from '@/components/PlatformIcons';
 import {
   LayoutGrid, List, RefreshCw, ExternalLink, Heart, MessageCircle,
   Share2, Film, Image as ImageIcon, Search, Plus, Calendar, Clock,
-  CheckCircle2, AlertTriangle, Play, X, Zap
+  CheckCircle2, AlertTriangle, Play, X, Zap, Send, Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -31,7 +31,11 @@ interface ContentItem {
 
 export default function ContentManagerPage() {
   const router = useRouter();
-  const { user, isLoaded, accounts, posts } = useApp();
+  const { user, isLoaded, accounts, posts, deletePost, refreshData } = useApp();
+
+  const [contentTab, setContentTab] = useState<'queue' | 'live'>('queue');
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<{ text: string; error?: boolean } | null>(null);
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [platformFilter, setPlatformFilter] = useState<'all' | 'Instagram' | 'Facebook'>('all');
@@ -40,6 +44,52 @@ export default function ContentManagerPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [metaFeedItems, setMetaFeedItems] = useState<ContentItem[]>([]);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
+
+  // Scheduled posts filter
+  const scheduledPosts = useMemo(() => {
+    let list = (posts || []).filter(p => p.status === 'scheduled');
+    if (platformFilter !== 'all') {
+      list = list.filter(p => p.platform === platformFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(p => (p.caption || '').toLowerCase().includes(q) || (p.title || '').toLowerCase().includes(q) || (p.clientName || '').toLowerCase().includes(q));
+    }
+    return list;
+  }, [posts, platformFilter, searchQuery]);
+
+  const handlePublishNow = async (postId: string) => {
+    setPublishingId(postId);
+    setActionNotice(null);
+    try {
+      const res = await fetch('/api/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ postId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to publish post');
+      }
+      setActionNotice({ text: 'Post published successfully!' });
+      await refreshData();
+      setTimeout(() => setActionNotice(null), 4000);
+    } catch (err: any) {
+      setActionNotice({ text: err.message || 'Publishing error', error: true });
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const handleDeleteScheduled = async (postId: string) => {
+    if (!confirm('Are you sure you want to cancel and delete this scheduled post?')) return;
+    try {
+      await deletePost(postId);
+      await refreshData();
+    } catch (err) {
+      console.error('Delete post error:', err);
+    }
+  };
 
   // Selected item for modal preview
   const [selectedItem, setSelectedItem] = useState<ContentItem | null>(null);
@@ -334,8 +384,202 @@ export default function ContentManagerPage() {
         </div>
       </div>
 
-      {/* CONTENT DISPLAY: GRID OR LIST */}
-      {allContent.length === 0 ? (
+      {/* Primary Tab Switcher */}
+      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.75rem' }}>
+        <button
+          onClick={() => setContentTab('queue')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.15rem',
+            borderRadius: '8px',
+            border: 'none',
+            background: contentTab === 'queue' ? '#4f46e5' : '#f8fafc',
+            color: contentTab === 'queue' ? '#fff' : 'var(--text-main)',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Calendar size={16} />
+          <span>Scheduled Queue</span>
+          <span style={{
+            background: contentTab === 'queue' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+            color: contentTab === 'queue' ? '#fff' : 'var(--text-main)',
+            padding: '2px 7px',
+            borderRadius: '999px',
+            fontSize: '0.75rem',
+            fontWeight: 800,
+          }}>
+            {scheduledPosts.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setContentTab('live')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.6rem 1.15rem',
+            borderRadius: '8px',
+            border: 'none',
+            background: contentTab === 'live' ? '#4f46e5' : '#f8fafc',
+            color: contentTab === 'live' ? '#fff' : 'var(--text-main)',
+            fontWeight: 700,
+            fontSize: '0.9rem',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Zap size={16} />
+          <span>Live Meta Feed</span>
+          <span style={{
+            background: contentTab === 'live' ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+            color: contentTab === 'live' ? '#fff' : 'var(--text-main)',
+            padding: '2px 7px',
+            borderRadius: '999px',
+            fontSize: '0.75rem',
+            fontWeight: 800,
+          }}>
+            {allContent.length}
+          </span>
+        </button>
+      </div>
+
+      {actionNotice && (
+        <div style={{
+          marginBottom: '1.5rem',
+          padding: '0.85rem 1.25rem',
+          borderRadius: '10px',
+          background: actionNotice.error ? '#fef2f2' : '#f0fdf4',
+          border: `1px solid ${actionNotice.error ? '#fecaca' : '#bbf7d0'}`,
+          color: actionNotice.error ? '#dc2626' : '#16a34a',
+          fontSize: '0.9rem',
+          fontWeight: 600,
+        }}>
+          {actionNotice.text}
+        </div>
+      )}
+
+      {/* SCHEDULED QUEUE TAB VIEW */}
+      {contentTab === 'queue' ? (
+        <div>
+          {scheduledPosts.length === 0 ? (
+            <div className="card" style={{ padding: '3.5rem 1.5rem', textAlign: 'center' }}>
+              <Clock size={42} color="#94a3b8" style={{ margin: '0 auto 0.75rem' }} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)' }}>No Scheduled Posts</h3>
+              <p style={{ fontSize: '0.88rem', color: 'var(--text-muted)', maxWidth: '420px', margin: '0.4rem auto 1.5rem' }}>
+                You have no upcoming posts in your scheduling queue. Upload videos or photos and set future dates/times to publish automatically.
+              </p>
+              <Link href="/upload" className="btn btn-primary">
+                <Plus size={16} /> Schedule a Post Now
+              </Link>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2.5rem' }}>
+              {scheduledPosts.map((post) => {
+                const scheduledDate = post.scheduledAt ? new Date(post.scheduledAt) : null;
+                const formattedDate = scheduledDate && !isNaN(scheduledDate.getTime())
+                  ? scheduledDate.toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })
+                  : 'Pending time';
+
+                return (
+                  <div
+                    key={post.id}
+                    className="card"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '1.25rem 1.5rem',
+                      flexWrap: 'wrap',
+                      gap: '1.25rem',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.15rem', flex: 1, minWidth: '260px' }}>
+                      <div style={{
+                        width: '44px', height: '44px', borderRadius: '12px',
+                        background: post.platform === 'Instagram' ? '#fdf2f8' : '#eff6ff',
+                        color: post.platform === 'Instagram' ? '#db2777' : '#1877f2',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        flexShrink: 0,
+                      }}>
+                        {post.platform === 'Instagram' ? <InstagramIcon size={20} /> : <FacebookIcon size={20} />}
+                      </div>
+
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.25rem' }}>
+                          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                            {post.clientName}
+                          </span>
+                          <span className="badge badge-info" style={{ fontSize: '0.72rem', padding: '2px 8px' }}>
+                            {post.mediaType === 'video' ? '🎬 Reel/Video' : '📷 Image'}
+                          </span>
+                          <span className="badge badge-warning" style={{ fontSize: '0.72rem', padding: '2px 8px' }}>
+                            Scheduled
+                          </span>
+                        </div>
+                        <div style={{
+                          fontSize: '0.88rem',
+                          color: 'var(--text-muted)',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          maxWidth: '500px',
+                        }}>
+                          {post.caption || post.title || 'Untitled Post'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', color: '#0891b2', fontSize: '0.86rem', fontWeight: 700 }}>
+                        <Clock size={16} />
+                        <span>{formattedDate}</span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                        <button
+                          onClick={() => handlePublishNow(post.id)}
+                          disabled={publishingId === post.id}
+                          className="btn btn-primary btn-sm"
+                          style={{ fontSize: '0.82rem', padding: '0.45rem 0.85rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                          title="Publish immediately without waiting for scheduled time"
+                        >
+                          <Send size={13} />
+                          {publishingId === post.id ? 'Publishing...' : 'Publish Now'}
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteScheduled(post.id)}
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: '#ef4444', padding: '0.45rem 0.65rem' }}
+                          title="Cancel & delete scheduled post"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* LIVE META FEED VIEW */
+        <div>
+          {allContent.length === 0 ? (
         <div className="card" style={{ padding: '3.5rem', textAlign: 'center' }}>
           <Film size={40} color="#94a3b8" style={{ margin: '0 auto 0.75rem' }} />
           <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>No Content Found</h3>
@@ -581,6 +825,8 @@ export default function ContentManagerPage() {
               </tbody>
             </table>
           </div>
+        </div>
+        )}
         </div>
       )}
 
