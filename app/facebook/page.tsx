@@ -9,7 +9,7 @@ import { FacebookIcon } from '@/components/PlatformIcons';
 import {
   Heart, MessageCircle, Eye, Play, Image as ImageIcon,
   ExternalLink, RefreshCw, Filter, Grid3X3, List,
-  Share2, FileText,
+  Share2, FileText, Plus
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -85,10 +85,16 @@ export default function FacebookPage() {
             <p className="page-desc">Your live Facebook posts, videos & engagement</p>
           </div>
         </div>
-        <button onClick={fetchFeed} className="btn btn-secondary" disabled={loading}>
-          <RefreshCw size={16} className={loading ? 'spinner' : ''} />
-          <span>{loading ? 'Loading...' : 'Refresh'}</span>
-        </button>
+        <div style={{ display: 'flex', gap: '0.6rem' }}>
+          <Link href="/upload" className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <Plus size={16} />
+            <span>Create / Upload Post</span>
+          </Link>
+          <button onClick={fetchFeed} className="btn btn-secondary" disabled={loading}>
+            <RefreshCw size={16} className={loading ? 'spinner' : ''} />
+            <span>{loading ? 'Loading...' : 'Refresh'}</span>
+          </button>
+        </div>
       </div>
 
       {/* Stats Bar */}

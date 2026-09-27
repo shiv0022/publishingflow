@@ -16,6 +16,7 @@ import {
   Menu,
   X,
   ChevronRight,
+  UploadCloud,
 } from 'lucide-react';
 import { InstagramIcon, FacebookIcon } from '@/components/PlatformIcons';
 
@@ -25,6 +26,13 @@ const menuItems = [
     label: 'Dashboard',
     icon: LayoutDashboard,
     description: 'Overview & stats',
+  },
+  {
+    href: '/upload',
+    label: 'Upload & Publish',
+    icon: UploadCloud,
+    description: 'Post videos, reels & photos',
+    accent: '#4f46e5',
   },
   {
     href: '/connect',
@@ -77,6 +85,8 @@ export function Sidebar() {
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
+    if (href === '/upload') return pathname === '/upload';
+    if (href === '/connect') return pathname === '/connect';
     if (href === '/instagram/auto-dm') return pathname === '/instagram/auto-dm';
     if (href === '/facebook/auto-dm') return pathname === '/facebook/auto-dm';
     if (href === '/instagram') return pathname === '/instagram';

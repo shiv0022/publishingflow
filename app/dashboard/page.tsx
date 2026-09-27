@@ -9,7 +9,7 @@ import { InstagramIcon, FacebookIcon } from '@/components/PlatformIcons';
 import {
   LayoutDashboard, Link2, TrendingUp, Users, Eye,
   Heart, MessageCircle, Share2, ArrowRight, Zap,
-  CheckCircle2,
+  CheckCircle2, UploadCloud,
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -94,6 +94,7 @@ export default function DashboardPage() {
   ];
 
   const quickActions = [
+    { label: 'Upload & Publish', href: '/upload', icon: <UploadCloud size={18} />, desc: 'Post videos, reels & photos', color: '#4f46e5' },
     { label: 'Connect Accounts', href: '/connect', icon: <Link2 size={18} />, desc: 'Link Facebook & Instagram', color: '#1877f2' },
     { label: 'Instagram Feed', href: '/instagram', icon: <InstagramIcon size={18} />, desc: `${feedStats.igCount} posts`, color: '#E1306C' },
     { label: 'Facebook Feed', href: '/facebook', icon: <FacebookIcon size={18} />, desc: `${feedStats.fbCount} posts`, color: '#1877F2' },
