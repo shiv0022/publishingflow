@@ -24,10 +24,20 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
+    const mediaUrlParam = (formData.get('mediaUrl') as string) || '';
     const title = (formData.get('title') as string) || '';
     const caption = (formData.get('caption') as string) || '';
+    const description = (formData.get('description') as string) || '';
+    const tagsRaw = (formData.get('tags') as string) || '[]';
     const accountIdsRaw = (formData.get('accountIds') as string) || '[]';
     const scheduleTimeRaw = formData.get('scheduleTime') as string | null;
+
+    let tags: string[] = [];
+    try {
+      tags = JSON.parse(tagsRaw);
+    } catch {
+      tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+    }
 
     let accountIds: string[] = [];
     try {
@@ -36,7 +46,7 @@ export async function POST(request: NextRequest) {
       accountIds = accountIdsRaw ? [accountIdsRaw] : [];
     }
 
-    if (!file && !caption.trim() && !title.trim()) {
+    if (!file && !mediaUrlParam && !caption.trim() && !title.trim()) {
       return NextResponse.json({ error: 'Media file or text caption is required.' }, { status: 400 });
     }
 
@@ -44,14 +54,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'At least one account must be selected.' }, { status: 400 });
     }
 
-    // Convert incoming file to in-memory Buffer (Zero disk writes)
+    // Convert incoming file or mediaUrl to in-memory Buffer (Zero disk writes)
     let videoBuffer: Buffer | null = null;
     let fileSizeBytes = 0;
-    const isVideo = file ? file.type.startsWith('video') : false;
+    let isVideo = file ? file.type.startsWith('video') : false;
 
     if (file) {
       videoBuffer = Buffer.from(await file.arrayBuffer());
       fileSizeBytes = videoBuffer.byteLength;
+    } else if (mediaUrlParam) {
+      try {
+        const fetchRes = await fetch(mediaUrlParam);
+        if (fetchRes.ok) {
+          const ab = await fetchRes.arrayBuffer();
+          videoBuffer = Buffer.from(ab);
+          fileSizeBytes = videoBuffer.byteLength;
+          const ct = fetchRes.headers.get('content-type') || '';
+          isVideo = ct.includes('video') || mediaUrlParam.includes('.mp4') || mediaUrlParam.includes('.mov');
+        }
+      } catch (fErr) {
+        console.warn('Direct mediaUrl fetch failed, will pass URL if needed:', fErr);
+      }
     }
 
     // Calculate schedule Unix timestamp if provided
@@ -168,8 +191,8 @@ export async function POST(request: NextRequest) {
               body: JSON.stringify({
                 snippet: {
                   title: title || 'Untitled Video',
-                  description: caption,
-                  tags: ['PublishingFlow'],
+                  description: `${caption ? caption + '\n\n' : ''}${description}`.trim(),
+                  tags: tags.length > 0 ? tags : ['PublishingFlow'],
                   categoryId: '22',
                 },
                 status: {
@@ -210,9 +233,10 @@ export async function POST(request: NextRequest) {
             platform: account.platform,
             title: title.trim(),
             caption: caption.trim(),
+            description: description.trim(),
             media_type: isVideo ? 'video' : 'image',
             media_name: file?.name || 'direct_upload',
-            media_url: null, // NOT stored in Supabase Storage!
+            media_url: mediaUrlParam || null, // No Supabase storage file!
             status: isScheduled ? 'scheduled' : 'posted',
             published_at: isScheduled ? null : new Date().toISOString(),
             scheduled_at: scheduledAtIso,

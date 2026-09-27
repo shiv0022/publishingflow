@@ -2,32 +2,73 @@
 
 export const dynamic = 'force-dynamic';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useApp } from '@/context/AppContext';
-import { InstagramIcon, FacebookIcon, ThreadsIcon } from '@/components/PlatformIcons';
+import { Platform } from '@/types';
+import { InstagramIcon, FacebookIcon, ThreadsIcon, YouTubeIcon } from '@/components/PlatformIcons';
+import { SocialPreviewCard } from '@/components/SocialPreviewCard';
+import { MediaRatioHelper } from '@/components/MediaRatioHelper';
 import {
   UploadCloud, X, Send, Calendar, FileVideo, FileImage,
-  CheckCircle2, AlertTriangle, Clock, Loader2, Check, ArrowRight
+  CheckCircle2, AlertTriangle, Clock, Loader2, Check, ArrowRight,
+  Globe, HardDrive, Hash, Sparkles, Plus, Tag, HelpCircle
 } from 'lucide-react';
 import Link from 'next/link';
+
+function extractDriveId(url: string): string | null {
+  const patterns = [
+    /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    /drive\.google\.com\/uc\?.*id=([a-zA-Z0-9_-]+)/,
+    /docs\.google\.com\/.*\/d\/([a-zA-Z0-9_-]+)/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function getDriveDirectUrl(fileId: string): string {
+  return `https://drive.google.com/uc?export=download&id=${fileId}`;
+}
+
+const QUICK_HASHTAGS = [
+  '#reels', '#viral', '#trending', '#shorts',
+  '#explore', '#fyp', '#creator', '#instagram',
+  '#business', '#marketing'
+];
 
 export default function UploadPage() {
   const router = useRouter();
   const { user, isLoaded, accounts, addPost, refreshData } = useApp();
 
+  // Multi-account selection
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
+
+  // Media state
+  const [mediaTab, setMediaTab] = useState<'upload' | 'url' | 'drive'>('upload');
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState('');
   const [mediaType, setMediaType] = useState<'image' | 'video'>('video');
+  const [urlInput, setUrlInput] = useState('');
+  const [driveInput, setDriveInput] = useState('');
+  const [driveResolved, setDriveResolved] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Content fields
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
+  const [description, setDescription] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+
+  // Scheduling & submitting
   const [scheduleTime, setScheduleTime] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [publishResults, setPublishResults] = useState<Array<{ platform: string; success: boolean; error?: string }>>([]);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isLoaded && !user.loggedIn) router.replace('/');
@@ -45,7 +86,7 @@ export default function UploadPage() {
   const connectedAccounts = accounts.filter(
     a => a.connectionStatus === 'Connected' &&
          a.connectionType === 'oauth' &&
-         (a.platform === 'Facebook' || a.platform === 'Instagram' || a.platform === 'Threads')
+         (a.platform === 'Facebook' || a.platform === 'Instagram' || a.platform === 'Threads' || a.platform === 'YouTube')
   );
 
   // Auto-select all connected accounts by default
@@ -55,17 +96,65 @@ export default function UploadPage() {
     }
   }, [connectedAccounts.length]);
 
+  const selectedPlatformNames = useMemo(() => {
+    const list = connectedAccounts.filter(a => selectedAccounts.has(a.id)).map(a => a.platform);
+    return Array.from(new Set(list));
+  }, [connectedAccounts, selectedAccounts]);
+
+  const primaryClientName = useMemo(() => {
+    const acc = connectedAccounts.find(a => selectedAccounts.has(a.id));
+    return acc ? acc.clientName : 'Your Account';
+  }, [connectedAccounts, selectedAccounts]);
+
+  const primaryPlatform = useMemo(() => {
+    const acc = connectedAccounts.find(a => selectedAccounts.has(a.id));
+    return acc ? (acc.platform as Platform) : 'Instagram';
+  }, [connectedAccounts, selectedAccounts]);
+
+  // Media Handlers
   const handleFileSelect = (file: File) => {
     if (!file) return;
     setMediaFile(file);
-    setMediaType(file.type.startsWith('video') ? 'video' : 'image');
+    const isVid = file.type.startsWith('video');
+    setMediaType(isVid ? 'video' : 'image');
     setMediaPreview(URL.createObjectURL(file));
     setPublishResults([]);
+  };
+
+  const handleMediaFitted = (newFile: File, previewUrl: string) => {
+    setMediaFile(newFile);
+    setMediaPreview(previewUrl);
+    setMediaType('image');
+  };
+
+  const handleApplyUrl = () => {
+    if (!urlInput.trim()) return;
+    setMediaFile(null);
+    setMediaPreview(urlInput.trim());
+    const isVid = urlInput.match(/\.(mp4|mov|webm)(\?.*)?$/i) !== null;
+    setMediaType(isVid ? 'video' : 'image');
+  };
+
+  const handleApplyDrive = () => {
+    if (!driveInput.trim()) return;
+    const fileId = extractDriveId(driveInput.trim());
+    if (!fileId) {
+      setSubmitError('Invalid Google Drive URL. Please make sure the link is set to "Anyone with the link can view".');
+      return;
+    }
+    const direct = getDriveDirectUrl(fileId);
+    setDriveResolved(direct);
+    setMediaFile(null);
+    setMediaPreview(direct);
+    setMediaType('video');
   };
 
   const clearMedia = () => {
     setMediaFile(null);
     setMediaPreview('');
+    setUrlInput('');
+    setDriveInput('');
+    setDriveResolved('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -78,6 +167,33 @@ export default function UploadPage() {
     });
   };
 
+  // Tags Handlers
+  const handleAddTag = (rawTag: string) => {
+    const clean = rawTag.replace(/^#/, '').trim();
+    if (!clean) return;
+    if (!tags.includes(clean)) {
+      setTags(prev => [...prev, clean]);
+    }
+  };
+
+  const handleRemoveTag = (tagToRemove: string) => {
+    setTags(prev => prev.filter(t => t !== tagToRemove));
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      handleAddTag(tagInput);
+      setTagInput('');
+    }
+  };
+
+  const insertHashtagToCaption = (ht: string) => {
+    if (caption.includes(ht)) return;
+    setCaption(prev => prev ? `${prev} ${ht}` : ht);
+  };
+
+  // Publish / Schedule Logic
   const handlePublishNow = async () => {
     setSubmitError(null);
     setPublishResults([]);
@@ -86,85 +202,49 @@ export default function UploadPage() {
       setSubmitError('Please tick at least one account to publish to.');
       return;
     }
-    if (!caption.trim() && !title.trim()) {
-      setSubmitError('Please enter a caption or title.');
+    if (!caption.trim() && !title.trim() && !mediaFile && !mediaPreview) {
+      setSubmitError('Please enter a caption, title, or select media.');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      // 1. Direct stream upload to Meta / YouTube without saving to Supabase Storage or server disk
+      const fd = new FormData();
       if (mediaFile) {
-        // Direct stream to Meta / YouTube without saving to Supabase Storage or Server Disk
-        const fd = new FormData();
         fd.append('file', mediaFile);
-        fd.append('title', title.trim());
-        fd.append('caption', caption.trim());
-        fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
-
-        const res = await fetch('/api/publish/direct', {
-          method: 'POST',
-          body: fd,
-        });
-        const data = await res.json();
-
-        if (data.results) {
-          setPublishResults(
-            data.results.map((r: any) => ({
-              platform: r.platform,
-              success: r.success,
-              error: r.error,
-            }))
-          );
-        }
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Direct publishing failed');
-        }
-
-        await refreshData();
-        setTimeout(() => router.push('/dashboard'), 2000);
-      } else {
-        // Text-only post fallback
-        const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
-        const results: Array<{ platform: string; success: boolean; error?: string }> = [];
-
-        for (const acc of selectedList) {
-          try {
-            const post = await addPost({
-              clientName: acc.clientName,
-              platform: acc.platform,
-              accountId: acc.id,
-              title: title.trim(),
-              caption: caption.trim(),
-              description: '',
-              isScheduled: false,
-              status: 'draft',
-            });
-
-            const res = await fetch('/api/publish', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ postId: post.id }),
-            });
-            const data = await res.json();
-
-            if (data.success) {
-              results.push({ platform: acc.platform, success: true });
-            } else {
-              results.push({ platform: acc.platform, success: false, error: data.error });
-            }
-          } catch (err: any) {
-            results.push({ platform: acc.platform, success: false, error: err.message });
-          }
-        }
-
-        setPublishResults(results);
-        await refreshData();
-
-        if (results.every(r => r.success)) {
-          setTimeout(() => router.push('/dashboard'), 2000);
-        }
+      } else if (mediaPreview && (mediaTab === 'url' || mediaTab === 'drive')) {
+        fd.append('mediaUrl', mediaPreview);
       }
+
+      fd.append('title', title.trim());
+      fd.append('caption', caption.trim());
+      fd.append('description', description.trim());
+      fd.append('tags', JSON.stringify(tags));
+      fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
+
+      const res = await fetch('/api/publish/direct', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+
+      if (data.results) {
+        setPublishResults(
+          data.results.map((r: any) => ({
+            platform: r.platform,
+            success: r.success,
+            error: r.error,
+          }))
+        );
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Direct publishing encountered errors.');
+      }
+
+      await refreshData();
+      setTimeout(() => router.push('/dashboard'), 2000);
     } catch (err: any) {
       setSubmitError(err.message || 'Publishing failed');
     } finally {
@@ -180,69 +260,53 @@ export default function UploadPage() {
       setSubmitError('Please tick at least one account to schedule.');
       return;
     }
-    if (!caption.trim() && !title.trim()) {
-      setSubmitError('Please enter a caption or title.');
+    if (!caption.trim() && !title.trim() && !mediaFile && !mediaPreview) {
+      setSubmitError('Please enter a caption, title, or select media.');
       return;
     }
     if (!scheduleTime) {
-      setSubmitError('Please select a date and time.');
+      setSubmitError('Please select a date and time for scheduling.');
       return;
     }
 
     setIsSubmitting(true);
     try {
+      const fd = new FormData();
       if (mediaFile) {
-        // Direct stream to Meta with scheduled_publish_time (Zero Supabase Storage)
-        const fd = new FormData();
         fd.append('file', mediaFile);
-        fd.append('title', title.trim());
-        fd.append('caption', caption.trim());
-        fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
-        fd.append('scheduleTime', scheduleTime);
-
-        const res = await fetch('/api/publish/direct', {
-          method: 'POST',
-          body: fd,
-        });
-        const data = await res.json();
-
-        if (data.results) {
-          setPublishResults(
-            data.results.map((r: any) => ({
-              platform: r.platform,
-              success: r.success,
-              error: r.error,
-            }))
-          );
-        }
-
-        if (!res.ok || !data.success) {
-          throw new Error(data.error || 'Direct scheduling failed');
-        }
-
-        await refreshData();
-        router.push('/dashboard');
-      } else {
-        const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
-        const normalizedScheduledAt = new Date(scheduleTime).toISOString();
-
-        for (const acc of selectedList) {
-          await addPost({
-            clientName: acc.clientName,
-            platform: acc.platform,
-            accountId: acc.id,
-            title: title.trim(),
-            caption: caption.trim(),
-            description: '',
-            isScheduled: true,
-            scheduledAt: normalizedScheduledAt,
-            status: 'scheduled',
-          });
-        }
-
-        await refreshData();
-        router.push('/dashboard');
+      } else if (mediaPreview && (mediaTab === 'url' || mediaTab === 'drive')) {
+        fd.append('mediaUrl', mediaPreview);
       }
+
+      fd.append('title', title.trim());
+      fd.append('caption', caption.trim());
+      fd.append('description', description.trim());
+      fd.append('tags', JSON.stringify(tags));
+      fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
+      fd.append('scheduleTime', scheduleTime);
+
+      const res = await fetch('/api/publish/direct', {
+        method: 'POST',
+        body: fd,
+      });
+      const data = await res.json();
+
+      if (data.results) {
+        setPublishResults(
+          data.results.map((r: any) => ({
+            platform: r.platform,
+            success: r.success,
+            error: r.error,
+          }))
+        );
+      }
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Direct scheduling encountered errors.');
+      }
+
+      await refreshData();
+      router.push('/dashboard');
     } catch (err: any) {
       setSubmitError(err.message || 'Scheduling failed');
     } finally {
@@ -253,309 +317,560 @@ export default function UploadPage() {
   if (!isLoaded || !user.loggedIn) return null;
 
   return (
-    <div className="app-container" style={{ maxWidth: '800px' }}>
+    <div className="app-container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '1.5rem' }}>
       {/* Header */}
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 className="page-title">Step 2: Upload &amp; Publish</h1>
-        <p className="page-desc">
-          Select accounts, upload your video/photo, and publish instantly or schedule.
-        </p>
+      <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <h1 className="page-title" style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0, color: 'var(--text-main)' }}>
+            Publishing Hub
+          </h1>
+          <p className="page-desc" style={{ color: 'var(--text-dim)', marginTop: '0.25rem', fontSize: '0.9rem' }}>
+            Compose, preview across channels, and stream directly to Meta &amp; YouTube with zero storage cost.
+          </p>
+        </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* 2-Column Responsive Layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '2rem', alignItems: 'start' }}>
+        
+        {/* ================= LEFT COLUMN: COMPOSER ================= */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 
-        {/* 1. SELECT LINKED ACCOUNTS WITH CHECKBOXES */}
-        <div className="card">
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '0.85rem', color: 'var(--text-main)' }}>
-            1. Select Accounts to Publish To
-          </h3>
+          {/* 1. SELECT TARGET ACCOUNTS */}
+          <div className="card" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
+                1. Select Accounts to Publish To
+              </h3>
+              <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                {selectedAccounts.size} of {connectedAccounts.length} selected
+              </span>
+            </div>
 
-          {connectedAccounts.length === 0 ? (
-            <div style={{
-              padding: '1.25rem',
-              borderRadius: 'var(--radius-md)',
-              background: '#fffbeb',
-              border: '1px solid #fde68a',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '1rem'
-            }}>
-              <div>
-                <p style={{ fontWeight: 600, color: '#92400e' }}>No Meta accounts linked yet</p>
-                <span style={{ fontSize: '0.82rem', color: '#b45309' }}>Link your Meta (Facebook &amp; Instagram) account first.</span>
+            {connectedAccounts.length === 0 ? (
+              <div style={{
+                padding: '1.25rem',
+                borderRadius: 'var(--radius-md)',
+                background: '#fffbeb',
+                border: '1px solid #fde68a',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '1rem'
+              }}>
+                <div>
+                  <p style={{ fontWeight: 600, color: '#92400e', margin: 0 }}>No connected accounts found</p>
+                  <span style={{ fontSize: '0.82rem', color: '#b45309' }}>Connect Facebook, Instagram, or YouTube first.</span>
+                </div>
+                <Link href="/profile" className="btn btn-secondary btn-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <span>Connect Accounts</span>
+                  <ArrowRight size={14} />
+                </Link>
               </div>
-              <Link href="/profile" className="btn btn-primary btn-sm">
-                Go to Accounts →
-              </Link>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {connectedAccounts.map((acc) => {
-                const isChecked = selectedAccounts.has(acc.id);
-                return (
-                  <label
-                    key={acc.id}
-                    onClick={() => toggleAccount(acc.id)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.85rem',
-                      padding: '0.85rem 1rem',
-                      borderRadius: 'var(--radius-md)',
-                      background: isChecked ? '#eef2ff' : '#f8fafc',
-                      border: isChecked ? '1px solid #4f46e5' : '1px solid var(--border)',
-                      cursor: 'pointer',
-                      userSelect: 'none',
-                      transition: 'all 0.15s ease'
-                    }}
-                  >
-                    {/* Tick Checkbox */}
-                    <div style={{
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '5px',
-                      background: isChecked ? '#4f46e5' : '#fff',
-                      border: isChecked ? 'none' : '2px solid #cbd5e1',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: '#fff',
-                      flexShrink: 0
-                    }}>
-                      {isChecked && <Check size={14} strokeWidth={3} />}
-                    </div>
-
-                    {/* Platform Icon */}
-                    <div style={{
-                      width: '28px',
-                      height: '28px',
-                      borderRadius: '6px',
-                      background: acc.platform === 'Instagram' ? '#fdf2f8' : (acc.platform === 'Threads' ? '#f1f5f9' : '#dbeafe'),
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color: acc.platform === 'Instagram' ? '#db2777' : (acc.platform === 'Threads' ? '#0f172a' : '#2563eb')
-                    }}>
-                      {acc.platform === 'Instagram' ? <InstagramIcon size={15} /> :
-                       acc.platform === 'Threads' ? <ThreadsIcon size={15} /> :
-                       <FacebookIcon size={15} />}
-                    </div>
-
-                    {/* Account Name */}
-                    <div>
-                      <strong style={{ fontSize: '0.92rem', color: 'var(--text-main)' }}>{acc.clientName}</strong>
-                      <span style={{ fontSize: '0.8rem', color: 'var(--text-dim)', marginLeft: '0.5rem' }}>({acc.platform})</span>
-                    </div>
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* 2. MEDIA UPLOAD & VIDEO PREVIEW */}
-        <div className="card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
-            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-main)' }}>
-              2. Upload Video / Image
-            </h3>
-            {mediaFile && (
-              <button
-                type="button"
-                onClick={clearMedia}
-                className="btn btn-ghost btn-sm"
-                style={{ color: 'var(--danger)' }}
-              >
-                <X size={14} /> Remove Media
-              </button>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.65rem' }}>
+                {connectedAccounts.map((acc) => {
+                  const isChecked = selectedAccounts.has(acc.id);
+                  return (
+                    <label
+                      key={acc.id}
+                      onClick={() => toggleAccount(acc.id)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.65rem',
+                        padding: '0.65rem 0.85rem',
+                        borderRadius: 'var(--radius-md)',
+                        border: isChecked ? '2px solid var(--primary, #4f46e5)' : '1px solid var(--border, #e2e8f0)',
+                        background: isChecked ? 'rgba(79, 70, 229, 0.05)' : '#fff',
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        style={{ width: '16px', height: '16px', accentColor: 'var(--primary, #4f46e5)' }}
+                      />
+                      <div style={{ flexShrink: 0 }}>
+                        {acc.platform === 'Instagram' && <InstagramIcon size={20} />}
+                        {acc.platform === 'Facebook' && <FacebookIcon size={20} />}
+                        {acc.platform === 'Threads' && <ThreadsIcon size={20} />}
+                        {acc.platform === 'YouTube' && <YouTubeIcon size={20} />}
+                      </div>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <p style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>{acc.clientName}</p>
+                        <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{acc.platform}</span>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             )}
           </div>
 
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="video/mp4,video/quicktime,image/jpeg,image/png,image/webp"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFileSelect(f);
-            }}
-          />
-
-          {!mediaFile ? (
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                border: '2px dashed var(--border-strong)',
-                borderRadius: 'var(--radius-md)',
-                padding: '2.5rem 1.5rem',
-                textAlign: 'center',
-                background: '#f8fafc',
-                cursor: 'pointer'
-              }}
-            >
-              <UploadCloud size={36} color="#4f46e5" style={{ margin: '0 auto 0.75rem' }} />
-              <h4 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                Click to select video or image
-              </h4>
-              <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                MP4, MOV, JPG or PNG (Up to 500 MB)
-              </p>
-            </div>
-          ) : (
-            <div style={{
-              borderRadius: 'var(--radius-md)',
-              border: '1px solid var(--border)',
-              background: '#000',
-              overflow: 'hidden',
-              textAlign: 'center'
-            }}>
-              {/* Native Live Video / Image Preview Player */}
-              {mediaType === 'video' ? (
-                <video
-                  src={mediaPreview}
-                  controls
-                  autoPlay={false}
-                  style={{ width: '100%', maxHeight: '360px', objectFit: 'contain' }}
-                />
-              ) : (
-                <img
-                  src={mediaPreview}
-                  alt="Preview"
-                  style={{ width: '100%', maxHeight: '360px', objectFit: 'contain' }}
-                />
-              )}
-              <div style={{ background: '#f8fafc', padding: '0.6rem 1rem', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)' }}>
-                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-main)' }}>{mediaFile.name}</span>
-                <span style={{ fontSize: '0.82rem', color: 'var(--text-dim)' }}>
-                  {(mediaFile.size / (1024 * 1024)).toFixed(1)} MB
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 3. TITLE & CAPTION */}
-        <div className="card">
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--text-main)' }}>
-            3. Title &amp; Caption
-          </h3>
-
-          <div className="form-group">
-            <label className="form-label">Title (Optional - used for Facebook &amp; Threads)</label>
-            <input
-              type="text"
-              className="input"
-              placeholder="e.g. My New Video"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
-          </div>
-
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Caption &amp; Hashtags</label>
-            <textarea
-              className="textarea"
-              placeholder="Write your caption here..."
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              rows={4}
-            />
-          </div>
-        </div>
-
-        {/* 4. PUBLISH OR SCHEDULE */}
-        <div className="card" style={{ border: '2px solid #4f46e5' }}>
-          <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--text-main)' }}>
-            4. Publish or Schedule
-          </h3>
-
-          {submitError && (
-            <div style={{
-              padding: '0.75rem 1rem',
-              borderRadius: 'var(--radius-sm)',
-              background: '#fff1f2',
-              border: '1px solid #fecdd3',
-              color: '#be123c',
-              fontSize: '0.88rem',
-              marginBottom: '1rem',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.5rem'
-            }}>
-              <AlertTriangle size={16} />
-              <span>{submitError}</span>
-            </div>
-          )}
-
-          {publishResults.length > 0 && (
-            <div style={{ marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {publishResults.map((r, i) => (
-                <div
-                  key={i}
-                  style={{
-                    padding: '0.65rem 0.85rem',
-                    borderRadius: 'var(--radius-sm)',
-                    background: r.success ? '#ecfdf5' : '#fff1f2',
-                    border: r.success ? '1px solid #a7f3d0' : '1px solid #fecdd3',
-                    color: r.success ? '#047857' : '#be123c',
-                    fontSize: '0.88rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem'
-                  }}
+          {/* 2. MEDIA UPLOADER WITH TABS & RATIO HELPER */}
+          <div className="card" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.85rem' }}>
+              <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
+                2. Media Attachment
+              </h3>
+              {mediaPreview && (
+                <button
+                  type="button"
+                  onClick={clearMedia}
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: '#dc2626', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.78rem' }}
                 >
-                  {r.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
-                  <span><strong>{r.platform}:</strong> {r.success ? 'Successfully published!' : r.error}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-            {/* Instant Publish Button */}
-            <button
-              type="button"
-              onClick={handlePublishNow}
-              disabled={isSubmitting || selectedAccounts.size === 0}
-              className="btn btn-primary btn-lg"
-              style={{ height: '52px', fontSize: '1rem' }}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 size={18} className="spinner" />
-                  <span>Publishing...</span>
-                </>
-              ) : (
-                <>
-                  <Send size={18} />
-                  <span>Publish Now ({selectedAccounts.size})</span>
-                </>
+                  <X size={14} /> Remove Media
+                </button>
               )}
-            </button>
+            </div>
 
-            {/* Schedule Section */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              <input
-                type="datetime-local"
-                className="input"
-                style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem' }}
-                value={scheduleTime}
-                onChange={(e) => setScheduleTime(e.target.value)}
-              />
+            {/* Media Source Tabs */}
+            <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '0.5rem' }}>
               <button
                 type="button"
-                onClick={handleSchedule}
-                disabled={isSubmitting || selectedAccounts.size === 0}
-                className="btn btn-secondary"
-                style={{ height: '40px' }}
+                onClick={() => setMediaTab('upload')}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: mediaTab === 'upload' ? 'var(--primary, #4f46e5)' : 'transparent',
+                  color: mediaTab === 'upload' ? '#fff' : '#64748b',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
               >
-                <Calendar size={16} />
-                <span>Schedule</span>
+                <UploadCloud size={14} /> Local File
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaTab('url')}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: mediaTab === 'url' ? 'var(--primary, #4f46e5)' : 'transparent',
+                  color: mediaTab === 'url' ? '#fff' : '#64748b',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <Globe size={14} /> Direct URL
+              </button>
+              <button
+                type="button"
+                onClick={() => setMediaTab('drive')}
+                style={{
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: mediaTab === 'drive' ? 'var(--primary, #4f46e5)' : 'transparent',
+                  color: mediaTab === 'drive' ? '#fff' : '#64748b',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem'
+                }}
+              >
+                <HardDrive size={14} /> Google Drive
               </button>
             </div>
+
+            {/* Tab 1: Local File Upload */}
+            {mediaTab === 'upload' && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="video/mp4,video/quicktime,video/webm,image/jpeg,image/png,image/webp"
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleFileSelect(f);
+                  }}
+                />
+
+                {!mediaPreview ? (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{
+                      border: '2px dashed #cbd5e1',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '2.5rem 1.5rem',
+                      textAlign: 'center',
+                      background: '#f8fafc',
+                      cursor: 'pointer',
+                      transition: 'border 0.2s ease',
+                    }}
+                  >
+                    <UploadCloud size={38} color="#4f46e5" style={{ margin: '0 auto 0.75rem' }} />
+                    <h4 style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-main)', margin: 0 }}>
+                      Click to select video or photo
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.35rem' }}>
+                      MP4, MOV, JPG, PNG or WEBP (Direct stream, 0 MB server storage)
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{ borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: '#000', overflow: 'hidden' }}>
+                    {mediaType === 'video' ? (
+                      <video src={mediaPreview} controls style={{ width: '100%', maxHeight: '320px', objectFit: 'contain' }} />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={mediaPreview} alt="Preview" style={{ width: '100%', maxHeight: '320px', objectFit: 'contain' }} />
+                    )}
+                    {mediaFile && (
+                      <div style={{ background: '#f8fafc', padding: '0.5rem 0.85rem', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-main)' }}>{mediaFile.name}</span>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{(mediaFile.size / (1024 * 1024)).toFixed(1)} MB</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Tab 2: Direct URL */}
+            {mediaTab === 'url' && (
+              <div>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.35rem', display: 'block' }}>
+                  Public Image or Video URL
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://example.com/video.mp4"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border)' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyUrl}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.55rem 1rem', fontSize: '0.82rem' }}
+                  >
+                    Load Media
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Tab 3: Google Drive */}
+            {mediaTab === 'drive' && (
+              <div>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.35rem', display: 'block' }}>
+                  Google Drive Public Share Link
+                </label>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <input
+                    type="url"
+                    className="input"
+                    placeholder="https://drive.google.com/file/d/1A2B3C.../view?usp=sharing"
+                    value={driveInput}
+                    onChange={(e) => setDriveInput(e.target.value)}
+                    style={{ flex: 1, padding: '0.55rem 0.75rem', borderRadius: '6px', border: '1px solid var(--border)' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleApplyDrive}
+                    className="btn btn-secondary"
+                    style={{ padding: '0.55rem 1rem', fontSize: '0.82rem' }}
+                  >
+                    Resolve Link
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.4rem' }}>
+                  Ensure link access is set to <em>&quot;Anyone with the link can view&quot;</em>.
+                </p>
+              </div>
+            )}
+
+            {/* Ratio Helper Tool */}
+            {mediaPreview && (
+              <MediaRatioHelper
+                mediaUrl={mediaPreview}
+                mediaType={mediaType}
+                originalFile={mediaFile}
+                onMediaFitted={handleMediaFitted}
+                selectedPlatforms={selectedPlatformNames}
+              />
+            )}
           </div>
+
+          {/* 3. TITLE, CAPTION, TAGS & DESCRIPTION */}
+          <div className="card" style={{ background: '#fff', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--text-main)' }}>
+              3. Content &amp; SEO Metadata
+            </h3>
+
+            {/* Title */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', margin: 0 }}>
+                  Title <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Required for YouTube, recommended for Facebook &amp; Threads)</span>
+                </label>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{title.length}/100</span>
+              </div>
+              <input
+                type="text"
+                className="input"
+                placeholder="e.g. 5 Game-Changing AI Tools for Content Creators in 2026"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={100}
+                style={{ width: '100%', padding: '0.6rem 0.85rem', borderRadius: '6px', border: '1px solid var(--border)' }}
+              />
+            </div>
+
+            {/* Main Caption */}
+            <div style={{ marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', margin: 0 }}>
+                  Caption &amp; Body Text
+                </label>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                  {caption.length} chars · {caption.trim() ? caption.trim().split(/\s+/).length : 0} words
+                </span>
+              </div>
+              <textarea
+                className="textarea"
+                placeholder="Write your engaging caption here. Include hashtags and mentions..."
+                value={caption}
+                onChange={(e) => setCaption(e.target.value)}
+                rows={5}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '6px', border: '1px solid var(--border)', resize: 'vertical' }}
+              />
+
+              {/* Quick Hashtag / Tag Suggestions */}
+              <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <Sparkles size={12} color="#4f46e5" /> Quick Tags:
+                </span>
+                {QUICK_HASHTAGS.map((ht) => (
+                  <button
+                    key={ht}
+                    type="button"
+                    onClick={() => {
+                      insertHashtagToCaption(ht);
+                      handleAddTag(ht);
+                    }}
+                    style={{
+                      border: '1px solid #e2e8f0',
+                      background: '#f8fafc',
+                      color: '#4f46e5',
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '999px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                    }}
+                  >
+                    {ht}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tags & Keywords Chip Input */}
+            <div style={{ marginBottom: '1rem' }}>
+              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem', display: 'block' }}>
+                Tags &amp; Keywords <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Press Enter or comma to add, used for YouTube tags &amp; SEO)</span>
+              </label>
+
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.4rem',
+                padding: '0.4rem 0.6rem',
+                border: '1px solid var(--border)',
+                borderRadius: '6px',
+                background: '#fff',
+                minHeight: '42px',
+                alignItems: 'center'
+              }}>
+                {tags.map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.25rem',
+                      background: '#eef2ff',
+                      color: '#4338ca',
+                      padding: '0.2rem 0.55rem',
+                      borderRadius: '4px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                    }}
+                  >
+                    #{tag}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveTag(tag)}
+                      style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#6366f1', padding: 0, display: 'flex' }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  placeholder={tags.length === 0 ? "Add tags like 'tech', 'ai', 'productivity'..." : "Add tag..."}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagInputKeyDown}
+                  style={{
+                    border: 'none',
+                    outline: 'none',
+                    fontSize: '0.82rem',
+                    flex: 1,
+                    minWidth: '120px',
+                    padding: '0.25rem',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Extended Description (Optional - YouTube / FB) */}
+            <div>
+              <label className="form-label" style={{ fontSize: '0.82rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem', display: 'block' }}>
+                Extended Description <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 400 }}>(Optional - timestamps, links, YouTube deep description)</span>
+              </label>
+              <textarea
+                className="textarea"
+                placeholder="0:00 Intro&#10;1:20 Tool 1 Demonstration&#10;2:45 Conclusion and Links..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                style={{ width: '100%', padding: '0.65rem 0.85rem', borderRadius: '6px', border: '1px solid var(--border)', resize: 'vertical' }}
+              />
+            </div>
+          </div>
+
+          {/* 4. PUBLISH OR SCHEDULE ACTION CARD */}
+          <div className="card" style={{ background: '#fff', border: '2px solid var(--primary, #4f46e5)', borderRadius: 'var(--radius-lg)', padding: '1.25rem' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--text-main)' }}>
+              4. Publish or Schedule
+            </h3>
+
+            {submitError && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-sm)',
+                background: '#fff1f2',
+                border: '1px solid #fecdd3',
+                color: '#be123c',
+                fontSize: '0.88rem',
+                marginBottom: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}>
+                <AlertTriangle size={16} />
+                <span>{submitError}</span>
+              </div>
+            )}
+
+            {publishResults.length > 0 && (
+              <div style={{ marginBottom: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {publishResults.map((r, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      padding: '0.65rem 0.85rem',
+                      borderRadius: 'var(--radius-sm)',
+                      background: r.success ? '#ecfdf5' : '#fff1f2',
+                      border: r.success ? '1px solid #a7f3d0' : '1px solid #fecdd3',
+                      color: r.success ? '#047857' : '#be123c',
+                      fontSize: '0.88rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem'
+                    }}
+                  >
+                    {r.success ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                    <span><strong>{r.platform}:</strong> {r.success ? 'Successfully published! (0 MB Storage)' : r.error}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              {/* Instant Publish Button */}
+              <button
+                type="button"
+                onClick={handlePublishNow}
+                disabled={isSubmitting || selectedAccounts.size === 0}
+                className="btn btn-primary btn-lg"
+                style={{ height: '52px', fontSize: '0.98rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={18} className="spinner" />
+                    <span>Publishing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send size={18} />
+                    <span>Publish Now ({selectedAccounts.size})</span>
+                  </>
+                )}
+              </button>
+
+              {/* Schedule Section */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                <input
+                  type="datetime-local"
+                  className="input"
+                  style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', border: '1px solid var(--border)' }}
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={handleSchedule}
+                  disabled={isSubmitting || selectedAccounts.size === 0}
+                  className="btn btn-secondary"
+                  style={{ height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                >
+                  <Calendar size={16} />
+                  <span>Schedule Post</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        {/* ================= RIGHT COLUMN: LIVE SOCIAL PREVIEW ================= */}
+        <div>
+          <SocialPreviewCard
+            platform={primaryPlatform}
+            clientName={primaryClientName}
+            caption={caption}
+            title={title}
+            description={description}
+            tags={tags}
+            mediaUrl={mediaPreview}
+            mediaType={mediaType}
+          />
         </div>
 
       </div>
