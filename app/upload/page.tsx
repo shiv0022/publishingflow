@@ -15,6 +15,7 @@ import {
   Globe, HardDrive, Hash, Sparkles, Plus, Tag, HelpCircle, Trash2
 } from 'lucide-react';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 function extractDriveId(url: string): string | null {
   const patterns = [
@@ -214,6 +215,39 @@ export default function UploadPage() {
     setCaption(prev => prev ? `${prev} ${ht}` : ht);
   };
 
+  // Prepare media payload: if file > 4 MB, upload to temporary transit bucket directly from browser
+  // This bypasses Vercel's 4.5 MB proxy limit, and backend purges the transit file immediately (0 MB permanent storage)
+  const prepareMediaPayload = async (): Promise<{ mediaUrl?: string; tempStoragePath?: string; fileToSend?: File }> => {
+    if (mediaFile) {
+      if (mediaFile.size > 4 * 1024 * 1024) {
+        if (!supabase) {
+          throw new Error('Supabase client is not available for direct transit upload.');
+        }
+        const ext = mediaFile.name.split('.').pop() || 'mp4';
+        const transitPath = `temp-transit/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${ext}`;
+        
+        const { error: upErr } = await supabase.storage.from('media').upload(transitPath, mediaFile, {
+          contentType: mediaFile.type,
+          upsert: true,
+        });
+
+        if (upErr) {
+          throw new Error(`Direct transit upload error: ${upErr.message}`);
+        }
+
+        const { data: pubData } = supabase.storage.from('media').getPublicUrl(transitPath);
+        return { mediaUrl: pubData.publicUrl, tempStoragePath: transitPath };
+      }
+      return { fileToSend: mediaFile };
+    }
+    
+    if (mediaPreview && (mediaTab === 'url' || mediaTab === 'drive')) {
+      return { mediaUrl: mediaPreview };
+    }
+
+    return {};
+  };
+
   // Publish / Schedule Logic
   const handlePublishNow = async () => {
     setSubmitError(null);
@@ -230,12 +264,16 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      // 1. Direct stream upload to Meta / YouTube without saving to Supabase Storage or server disk
+      const { mediaUrl, tempStoragePath, fileToSend } = await prepareMediaPayload();
+
       const fd = new FormData();
-      if (mediaFile) {
-        fd.append('file', mediaFile);
-      } else if (mediaPreview && (mediaTab === 'url' || mediaTab === 'drive')) {
-        fd.append('mediaUrl', mediaPreview);
+      if (fileToSend) {
+        fd.append('file', fileToSend);
+      } else if (mediaUrl) {
+        fd.append('mediaUrl', mediaUrl);
+        if (tempStoragePath) {
+          fd.append('tempStoragePath', tempStoragePath);
+        }
       }
 
       fd.append('title', title.trim());
@@ -248,7 +286,17 @@ export default function UploadPage() {
         method: 'POST',
         body: fd,
       });
-      const data = await res.json();
+
+      const responseText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (res.status === 413 || responseText.includes('Request Entity Too Large')) {
+          throw new Error('Video file exceeded direct proxy limit. Please retry with transit upload.');
+        }
+        throw new Error(responseText || `Server responded with status ${res.status}`);
+      }
 
       if (data.results) {
         setPublishResults(
@@ -292,11 +340,16 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
+      const { mediaUrl, tempStoragePath, fileToSend } = await prepareMediaPayload();
+
       const fd = new FormData();
-      if (mediaFile) {
-        fd.append('file', mediaFile);
-      } else if (mediaPreview && (mediaTab === 'url' || mediaTab === 'drive')) {
-        fd.append('mediaUrl', mediaPreview);
+      if (fileToSend) {
+        fd.append('file', fileToSend);
+      } else if (mediaUrl) {
+        fd.append('mediaUrl', mediaUrl);
+        if (tempStoragePath) {
+          fd.append('tempStoragePath', tempStoragePath);
+        }
       }
 
       fd.append('title', title.trim());
@@ -310,7 +363,17 @@ export default function UploadPage() {
         method: 'POST',
         body: fd,
       });
-      const data = await res.json();
+
+      const responseText = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (res.status === 413 || responseText.includes('Request Entity Too Large')) {
+          throw new Error('Video file exceeded direct proxy limit. Please retry with transit upload.');
+        }
+        throw new Error(responseText || `Server responded with status ${res.status}`);
+      }
 
       if (data.results) {
         setPublishResults(

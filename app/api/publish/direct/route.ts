@@ -143,27 +143,78 @@ export async function POST(request: NextRequest) {
           const messageContent = `${title ? title + '\n\n' : ''}${caption}`.trim();
 
         // -----------------------------------------------------------------
-        // 1. INSTAGRAM REELS (Direct Resumable Upload - No Disk / No Supabase)
+        // 1. INSTAGRAM REELS (Direct Resumable Upload or Transit URL)
         // -----------------------------------------------------------------
         if (account.platform === 'Instagram') {
-          if (!videoBuffer || !isVideo) {
-            throw new Error('Direct video publish to Instagram requires a video file (.mp4, .mov).');
-          }
-
           const igUserId = oauthAccountId || 'me';
-          const igRes = await uploadDirectToInstagramReels({
-            videoBuffer,
-            fileSizeBytes,
-            caption: messageContent,
-            igUserId,
-            accessToken,
-            scheduleTimeSeconds,
-          });
 
-          externalPostId = igRes.postId;
+          if (videoBuffer) {
+            const igRes = await uploadDirectToInstagramReels({
+              videoBuffer,
+              fileSizeBytes,
+              caption: messageContent,
+              igUserId,
+              accessToken,
+              scheduleTimeSeconds,
+            });
+            externalPostId = igRes.postId;
+          } else if (mediaUrlParam) {
+            // Meta downloads directly from transit URL
+            const containerBody: Record<string, any> = {
+              media_type: 'REELS',
+              video_url: mediaUrlParam,
+              caption: messageContent,
+              access_token: accessToken,
+              ...(scheduleTimeSeconds ? { scheduled_publish_time: scheduleTimeSeconds } : {}),
+            };
+
+            const initRes = await fetch(`https://graph.facebook.com/v22.0/${igUserId}/media`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(containerBody),
+            });
+            const initData = await initRes.json();
+            if (!initRes.ok || !initData.id) {
+              throw new Error(initData?.error?.message || 'Instagram Reels container creation failed');
+            }
+            const containerId = initData.id;
+
+            if (scheduleTimeSeconds) {
+              externalPostId = containerId;
+            } else {
+              // Wait for Meta to finish downloading from transit URL
+              let isReady = false;
+              for (let i = 0; i < 20; i++) {
+                await new Promise((r) => setTimeout(r, 3000));
+                const statusRes = await fetch(
+                  `https://graph.facebook.com/v22.0/${containerId}?fields=status_code,status&access_token=${accessToken}`
+                );
+                const statusData = await statusRes.json();
+                if (statusData.status_code === 'FINISHED') {
+                  isReady = true;
+                  break;
+                } else if (statusData.status_code === 'ERROR') {
+                  throw new Error('Meta video processing failed. Please ensure 9:16 vertical MP4 format.');
+                }
+              }
+
+              const pubRes = await fetch(`https://graph.facebook.com/v22.0/${igUserId}/media_publish`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ creation_id: containerId, access_token: accessToken }),
+              });
+              const pubData = await pubRes.json();
+              if (!pubRes.ok || !pubData.id) {
+                throw new Error(pubData?.error?.message || 'Instagram Reels publish failed');
+              }
+              externalPostId = pubData.id;
+            }
+          } else {
+            throw new Error('Instagram Reels requires a video file or valid video URL.');
+          }
         } 
         // -----------------------------------------------------------------
-        // 2. FACEBOOK PAGE (Direct Multipart Upload - No Disk / No Supabase)
+        // 2. FACEBOOK PAGE (Direct Multipart or Transit URL)
         // -----------------------------------------------------------------
         else if (account.platform === 'Facebook') {
           const pageId = oauthAccountId || 'me';
@@ -179,6 +230,42 @@ export async function POST(request: NextRequest) {
               scheduleTimeSeconds,
             });
             externalPostId = fbRes.videoId;
+          } else if (mediaUrlParam && isVideo) {
+            const fbBody: Record<string, any> = {
+              file_url: mediaUrlParam,
+              title: title || undefined,
+              description: messageContent,
+              access_token: accessToken,
+            };
+            if (scheduleTimeSeconds) {
+              fbBody.published = false;
+              fbBody.scheduled_publish_time = scheduleTimeSeconds;
+            }
+            const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/videos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(fbBody),
+            });
+            const fbData = await fbRes.json();
+            if (!fbRes.ok || !fbData.id) {
+              throw new Error(fbData?.error?.message || 'Facebook video upload failed');
+            }
+            externalPostId = fbData.id;
+          } else if (mediaUrlParam && !isVideo) {
+            const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                url: mediaUrlParam,
+                caption: messageContent,
+                access_token: accessToken,
+              }),
+            });
+            const fbData = await fbRes.json();
+            if (!fbRes.ok || (!fbData.id && !fbData.post_id)) {
+              throw new Error(fbData?.error?.message || 'Facebook photo upload failed');
+            }
+            externalPostId = fbData.post_id || fbData.id;
           } else {
             // Text status or fallback
             const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
@@ -301,6 +388,17 @@ export async function POST(request: NextRequest) {
       }
     }
   }
+
+    // Instant cleanup of temporary transit file: zero permanent storage in Supabase!
+    const tempStoragePath = (formData.get('tempStoragePath') as string) || '';
+    if (tempStoragePath) {
+      try {
+        await supabase.storage.from('media').remove([tempStoragePath]);
+        console.log(`[Zero Storage Cleanup]: Successfully purged ${tempStoragePath}`);
+      } catch (cleanErr) {
+        console.warn('Storage purge warning:', cleanErr);
+      }
+    }
 
     const allSuccessful = results.length > 0 && results.every((r) => r.success);
 
