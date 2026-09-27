@@ -30,7 +30,6 @@ export async function POST(request: NextRequest) {
     const description = (formData.get('description') as string) || '';
     const tagsRaw = (formData.get('tags') as string) || '[]';
     const accountIdsRaw = (formData.get('accountIds') as string) || '[]';
-    const scheduleTimeRaw = formData.get('scheduleTime') as string | null;
 
     let tags: string[] = [];
     try {
@@ -77,16 +76,38 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Calculate schedule Unix timestamp if provided
-    let scheduleTimeSeconds: number | null = null;
-    let scheduledAtIso: string | null = null;
-    if (scheduleTimeRaw) {
-      const schedDate = new Date(scheduleTimeRaw);
-      if (!isNaN(schedDate.getTime())) {
-        scheduleTimeSeconds = Math.floor(schedDate.getTime() / 1000);
-        scheduledAtIso = schedDate.toISOString();
+    const scheduleTimesRaw = formData.get('scheduleTimes') as string | null;
+    const scheduleTimeRaw = formData.get('scheduleTime') as string | null;
+
+    let scheduleTimesList: Array<{ seconds: number | null; iso: string | null }> = [];
+    if (scheduleTimesRaw) {
+      try {
+        const parsed = JSON.parse(scheduleTimesRaw);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            const d = new Date(item);
+            if (!isNaN(d.getTime())) {
+              scheduleTimesList.push({
+                seconds: Math.floor(d.getTime() / 1000),
+                iso: d.toISOString(),
+              });
+            }
+          }
+        }
+      } catch {}
+    }
+
+    if (scheduleTimesList.length === 0 && scheduleTimeRaw) {
+      const d = new Date(scheduleTimeRaw);
+      if (!isNaN(d.getTime())) {
+        scheduleTimesList.push({
+          seconds: Math.floor(d.getTime() / 1000),
+          iso: d.toISOString(),
+        });
       }
     }
+
+    const targetSlots = scheduleTimesList.length > 0 ? scheduleTimesList : [{ seconds: null, iso: null }];
 
     const results: Array<{
       accountId: string;
@@ -94,6 +115,7 @@ export async function POST(request: NextRequest) {
       clientName: string;
       success: boolean;
       externalPostId?: string;
+      scheduledAt?: string | null;
       error?: string;
     }> = [];
 
@@ -108,14 +130,17 @@ export async function POST(request: NextRequest) {
     }
 
     for (const account of accounts) {
-      try {
-        if (account.connection_status !== 'Connected' || account.connection_type !== 'oauth') {
-          throw new Error(`Account "${account.client_name}" (${account.platform}) is not actively connected via OAuth.`);
-        }
+      for (const slot of targetSlots) {
+        const scheduleTimeSeconds = slot.seconds;
+        const scheduledAtIso = slot.iso;
+        try {
+          if (account.connection_status !== 'Connected' || account.connection_type !== 'oauth') {
+            throw new Error(`Account "${account.client_name}" (${account.platform}) is not actively connected via OAuth.`);
+          }
 
-        const { accessToken, oauthAccountId } = await getValidAccessToken(account.id);
-        let externalPostId = '';
-        const messageContent = `${title ? title + '\n\n' : ''}${caption}`.trim();
+          const { accessToken, oauthAccountId } = await getValidAccessToken(account.id);
+          let externalPostId = '';
+          const messageContent = `${title ? title + '\n\n' : ''}${caption}`.trim();
 
         // -----------------------------------------------------------------
         // 1. INSTAGRAM REELS (Direct Resumable Upload - No Disk / No Supabase)
@@ -261,6 +286,7 @@ export async function POST(request: NextRequest) {
           clientName: account.client_name,
           success: true,
           externalPostId,
+          scheduledAt: scheduledAtIso,
         });
       } catch (postErr: any) {
         console.error(`[Direct Upload Error] ${account.platform}:`, postErr);
@@ -269,10 +295,12 @@ export async function POST(request: NextRequest) {
           platform: account.platform,
           clientName: account.client_name,
           success: false,
+          scheduledAt: scheduledAtIso,
           error: postErr.message || 'Direct upload failed',
         });
       }
     }
+  }
 
     const allSuccessful = results.length > 0 && results.every((r) => r.success);
 

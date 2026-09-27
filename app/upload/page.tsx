@@ -12,7 +12,7 @@ import { MediaRatioHelper } from '@/components/MediaRatioHelper';
 import {
   UploadCloud, X, Send, Calendar, FileVideo, FileImage,
   CheckCircle2, AlertTriangle, Clock, Loader2, Check, ArrowRight,
-  Globe, HardDrive, Hash, Sparkles, Plus, Tag, HelpCircle
+  Globe, HardDrive, Hash, Sparkles, Plus, Tag, HelpCircle, Trash2
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -64,8 +64,8 @@ export default function UploadPage() {
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
 
-  // Scheduling & submitting
-  const [scheduleTime, setScheduleTime] = useState('');
+  // Scheduling & submitting (supports multiple future schedule slots)
+  const [scheduleTimes, setScheduleTimes] = useState<string[]>(['']);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [publishResults, setPublishResults] = useState<Array<{ platform: string; success: boolean; error?: string }>>([]);
@@ -80,8 +80,29 @@ export default function UploadPage() {
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(10, 0, 0, 0);
     const tzOffset = tomorrow.getTimezoneOffset() * 60000;
-    setScheduleTime(new Date(tomorrow.getTime() - tzOffset).toISOString().slice(0, 16));
+    const initialIso = new Date(tomorrow.getTime() - tzOffset).toISOString().slice(0, 16);
+    setScheduleTimes([initialIso]);
   }, []);
+
+  const addScheduleTime = () => {
+    const last = scheduleTimes[scheduleTimes.length - 1];
+    if (!last) return;
+    const next = new Date(last);
+    next.setDate(next.getDate() + 1);
+    const tzOff = next.getTimezoneOffset() * 60000;
+    setScheduleTimes([...scheduleTimes, new Date(next.getTime() - tzOff).toISOString().slice(0, 16)]);
+  };
+
+  const removeScheduleTime = (idx: number) => {
+    if (scheduleTimes.length <= 1) return;
+    setScheduleTimes(scheduleTimes.filter((_, i) => i !== idx));
+  };
+
+  const updateScheduleTime = (idx: number, val: string) => {
+    const updated = [...scheduleTimes];
+    updated[idx] = val;
+    setScheduleTimes(updated);
+  };
 
   const connectedAccounts = accounts.filter(
     a => a.connectionStatus === 'Connected' &&
@@ -264,8 +285,8 @@ export default function UploadPage() {
       setSubmitError('Please enter a caption, title, or select media.');
       return;
     }
-    if (!scheduleTime) {
-      setSubmitError('Please select a date and time for scheduling.');
+    if (scheduleTimes.some(t => !t)) {
+      setSubmitError('Please select valid date and time for all schedule slots.');
       return;
     }
 
@@ -283,7 +304,7 @@ export default function UploadPage() {
       fd.append('description', description.trim());
       fd.append('tags', JSON.stringify(tags));
       fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
-      fd.append('scheduleTime', scheduleTime);
+      fd.append('scheduleTimes', JSON.stringify(scheduleTimes));
 
       const res = await fetch('/api/publish/direct', {
         method: 'POST',
@@ -812,14 +833,14 @@ export default function UploadPage() {
               </div>
             )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              {/* Instant Publish Button */}
+            {/* Instant Publish Button */}
+            <div style={{ marginBottom: '1.25rem' }}>
               <button
                 type="button"
                 onClick={handlePublishNow}
                 disabled={isSubmitting || selectedAccounts.size === 0}
                 className="btn btn-primary btn-lg"
-                style={{ height: '52px', fontSize: '0.98rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
+                style={{ width: '100%', height: '52px', fontSize: '0.98rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}
               >
                 {isSubmitting ? (
                   <>
@@ -829,29 +850,78 @@ export default function UploadPage() {
                 ) : (
                   <>
                     <Send size={18} />
-                    <span>Publish Now ({selectedAccounts.size})</span>
+                    <span>Publish Immediately ({selectedAccounts.size} Account{selectedAccounts.size > 1 ? 's' : ''})</span>
                   </>
                 )}
               </button>
+            </div>
 
-              {/* Schedule Section */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                <input
-                  type="datetime-local"
-                  className="input"
-                  style={{ padding: '0.5rem 0.75rem', fontSize: '0.85rem', border: '1px solid var(--border)' }}
-                  value={scheduleTime}
-                  onChange={(e) => setScheduleTime(e.target.value)}
-                />
+            {/* Multi-Slot Schedule Section */}
+            <div style={{ paddingTop: '1.25rem', borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Calendar size={16} color="var(--primary, #4f46e5)" />
+                  <span>Schedule for Future Publishing ({scheduleTimes.length} Slot{scheduleTimes.length > 1 ? 's' : ''})</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={addScheduleTime}
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: '0.78rem', display: 'flex', alignItems: 'center', gap: '0.35rem', padding: '0.3rem 0.65rem' }}
+                >
+                  <Plus size={13} />
+                  <span>Add Another Time Slot</span>
+                </button>
+              </div>
+
+              {/* Numbered Schedule Slots */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                {scheduleTimes.map((t, idx) => (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <span style={{
+                      width: '26px', height: '26px', borderRadius: '50%', background: '#eef2ff', color: '#4338ca',
+                      fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+                    }}>
+                      {idx + 1}
+                    </span>
+                    <input
+                      type="datetime-local"
+                      className="input"
+                      style={{ flex: 1, padding: '0.55rem 0.75rem', fontSize: '0.85rem', border: '1px solid var(--border)' }}
+                      value={t}
+                      onChange={(e) => updateScheduleTime(idx, e.target.value)}
+                    />
+                    {scheduleTimes.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeScheduleTime(idx)}
+                        className="btn btn-ghost btn-sm"
+                        style={{ color: '#dc2626', padding: '0.45rem', border: '1px solid #fee2e2', borderRadius: '6px' }}
+                        title="Remove time slot"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Helper count & Schedule Action */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <span style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <Clock size={13} />
+                  Will schedule {selectedAccounts.size * scheduleTimes.length} total post(s) ({selectedAccounts.size} account{selectedAccounts.size > 1 ? 's' : ''} × {scheduleTimes.length} time{scheduleTimes.length > 1 ? 's' : ''})
+                </span>
+
                 <button
                   type="button"
                   onClick={handleSchedule}
                   disabled={isSubmitting || selectedAccounts.size === 0}
                   className="btn btn-secondary"
-                  style={{ height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                  style={{ height: '42px', padding: '0 1.25rem', display: 'flex', alignItems: 'center', gap: '0.45rem', fontWeight: 600 }}
                 >
                   <Calendar size={16} />
-                  <span>Schedule Post</span>
+                  <span>Schedule All Slots</span>
                 </button>
               </div>
             </div>
