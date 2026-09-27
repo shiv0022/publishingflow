@@ -1,0 +1,266 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseClient } from '@/lib/supabaseServer';
+import { getValidAccessToken } from '@/lib/oauthTokens';
+import { uploadDirectToInstagramReels, uploadDirectToFacebookPage } from '@/lib/metaDirectUpload';
+import { logAudit } from '@/lib/auditLogger';
+
+/**
+ * Direct Upload & Publish Route (Zero Server Disk, Zero Supabase Storage)
+ * 
+ * Streams incoming video binary buffer directly from in-memory request to:
+ * - Meta Resumable Upload (rupload.facebook.com) for Instagram Reels
+ * - Facebook Video Graph API (graph-video.facebook.com) for Facebook Page Videos
+ * - YouTube Resumable API for YouTube Videos
+ * 
+ * Only post metadata (title, caption, external post ID) is stored in Supabase DB.
+ * Video files are NEVER saved to server disk or Supabase Storage!
+ */
+export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseClient();
+  if (!supabase) {
+    return NextResponse.json({ error: 'Supabase server configuration missing.' }, { status: 500 });
+  }
+
+  try {
+    const formData = await request.formData();
+    const file = formData.get('file') as File | null;
+    const title = (formData.get('title') as string) || '';
+    const caption = (formData.get('caption') as string) || '';
+    const accountIdsRaw = (formData.get('accountIds') as string) || '[]';
+    const scheduleTimeRaw = formData.get('scheduleTime') as string | null;
+
+    let accountIds: string[] = [];
+    try {
+      accountIds = JSON.parse(accountIdsRaw);
+    } catch {
+      accountIds = accountIdsRaw ? [accountIdsRaw] : [];
+    }
+
+    if (!file && !caption.trim() && !title.trim()) {
+      return NextResponse.json({ error: 'Media file or text caption is required.' }, { status: 400 });
+    }
+
+    if (accountIds.length === 0) {
+      return NextResponse.json({ error: 'At least one account must be selected.' }, { status: 400 });
+    }
+
+    // Convert incoming file to in-memory Buffer (Zero disk writes)
+    let videoBuffer: Buffer | null = null;
+    let fileSizeBytes = 0;
+    const isVideo = file ? file.type.startsWith('video') : false;
+
+    if (file) {
+      videoBuffer = Buffer.from(await file.arrayBuffer());
+      fileSizeBytes = videoBuffer.byteLength;
+    }
+
+    // Calculate schedule Unix timestamp if provided
+    let scheduleTimeSeconds: number | null = null;
+    let scheduledAtIso: string | null = null;
+    if (scheduleTimeRaw) {
+      const schedDate = new Date(scheduleTimeRaw);
+      if (!isNaN(schedDate.getTime())) {
+        scheduleTimeSeconds = Math.floor(schedDate.getTime() / 1000);
+        scheduledAtIso = schedDate.toISOString();
+      }
+    }
+
+    const results: Array<{
+      accountId: string;
+      platform: string;
+      clientName: string;
+      success: boolean;
+      externalPostId?: string;
+      error?: string;
+    }> = [];
+
+    // Fetch accounts from Supabase
+    const { data: accounts, error: accErr } = await supabase
+      .from('accounts')
+      .select('*')
+      .in('id', accountIds);
+
+    if (accErr || !accounts || accounts.length === 0) {
+      return NextResponse.json({ error: 'Selected accounts could not be found.' }, { status: 404 });
+    }
+
+    for (const account of accounts) {
+      try {
+        if (account.connection_status !== 'Connected' || account.connection_type !== 'oauth') {
+          throw new Error(`Account "${account.client_name}" (${account.platform}) is not actively connected via OAuth.`);
+        }
+
+        const { accessToken, oauthAccountId } = await getValidAccessToken(account.id);
+        let externalPostId = '';
+        const messageContent = `${title ? title + '\n\n' : ''}${caption}`.trim();
+
+        // -----------------------------------------------------------------
+        // 1. INSTAGRAM REELS (Direct Resumable Upload - No Disk / No Supabase)
+        // -----------------------------------------------------------------
+        if (account.platform === 'Instagram') {
+          if (!videoBuffer || !isVideo) {
+            throw new Error('Direct video publish to Instagram requires a video file (.mp4, .mov).');
+          }
+
+          const igUserId = oauthAccountId || 'me';
+          const igRes = await uploadDirectToInstagramReels({
+            videoBuffer,
+            fileSizeBytes,
+            caption: messageContent,
+            igUserId,
+            accessToken,
+            scheduleTimeSeconds,
+          });
+
+          externalPostId = igRes.postId;
+        } 
+        // -----------------------------------------------------------------
+        // 2. FACEBOOK PAGE (Direct Multipart Upload - No Disk / No Supabase)
+        // -----------------------------------------------------------------
+        else if (account.platform === 'Facebook') {
+          const pageId = oauthAccountId || 'me';
+
+          if (videoBuffer && isVideo) {
+            const fbRes = await uploadDirectToFacebookPage({
+              videoBuffer,
+              fileName: file?.name || 'video.mp4',
+              title,
+              description: caption,
+              pageId,
+              pageAccessToken: accessToken,
+              scheduleTimeSeconds,
+            });
+            externalPostId = fbRes.videoId;
+          } else {
+            // Text status or fallback
+            const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/feed`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                message: messageContent,
+                access_token: accessToken,
+              }),
+            });
+            const fbData = await fbRes.json();
+            if (!fbRes.ok || fbData.error) {
+              throw new Error(fbData.error?.message || 'Facebook post failed');
+            }
+            externalPostId = fbData.id;
+          }
+        }
+        // -----------------------------------------------------------------
+        // 3. YOUTUBE (Direct Resumable Stream)
+        // -----------------------------------------------------------------
+        else if (account.platform === 'YouTube') {
+          if (!videoBuffer || !isVideo) {
+            throw new Error('YouTube publishing requires a video file.');
+          }
+
+          const ytInitRes = await fetch(
+            'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'X-Upload-Content-Type': 'video/*',
+              },
+              body: JSON.stringify({
+                snippet: {
+                  title: title || 'Untitled Video',
+                  description: caption,
+                  tags: ['PublishingFlow'],
+                  categoryId: '22',
+                },
+                status: {
+                  privacyStatus: 'public',
+                  selfDeclaredMadeForKids: false,
+                },
+              }),
+            }
+          );
+
+          if (!ytInitRes.ok) {
+            const ytErr = await ytInitRes.json().catch(() => ({}));
+            throw new Error(ytErr.error?.message || 'YouTube upload session creation failed');
+          }
+
+          const resumableUrl = ytInitRes.headers.get('location');
+          if (resumableUrl) {
+            const ytUploadRes = await fetch(resumableUrl, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'video/*',
+                'Content-Length': fileSizeBytes.toString(),
+              },
+              body: videoBuffer as unknown as BodyInit,
+            });
+            const ytData = await ytUploadRes.json().catch(() => ({}));
+            externalPostId = ytData.id || resumableUrl;
+          }
+        }
+
+        // Record Post metadata into Supabase Database (ZERO storage bytes used!)
+        const isScheduled = Boolean(scheduleTimeSeconds);
+        const { data: postRecord } = await supabase
+          .from('posts')
+          .insert({
+            account_id: account.id,
+            client_name: account.client_name,
+            platform: account.platform,
+            title: title.trim(),
+            caption: caption.trim(),
+            media_type: isVideo ? 'video' : 'image',
+            media_name: file?.name || 'direct_upload',
+            media_url: null, // NOT stored in Supabase Storage!
+            status: isScheduled ? 'scheduled' : 'posted',
+            published_at: isScheduled ? null : new Date().toISOString(),
+            scheduled_at: scheduledAtIso,
+            external_post_id: externalPostId,
+          })
+          .select('id')
+          .single();
+
+        await logAudit({
+          action: isScheduled ? 'POST_SCHEDULED_DIRECT' : 'POST_PUBLISHED_DIRECT',
+          entityType: 'post',
+          entityId: postRecord?.id || externalPostId,
+          clientName: account.client_name,
+          platform: account.platform,
+          status: 'success',
+          details: { externalPostId, zeroDiskStorage: true, zeroSupabaseStorage: true },
+        });
+
+        results.push({
+          accountId: account.id,
+          platform: account.platform,
+          clientName: account.client_name,
+          success: true,
+          externalPostId,
+        });
+      } catch (postErr: any) {
+        console.error(`[Direct Upload Error] ${account.platform}:`, postErr);
+        results.push({
+          accountId: account.id,
+          platform: account.platform,
+          clientName: account.client_name,
+          success: false,
+          error: postErr.message || 'Direct upload failed',
+        });
+      }
+    }
+
+    const allSuccessful = results.length > 0 && results.every((r) => r.success);
+
+    return NextResponse.json({
+      success: allSuccessful,
+      results,
+      message: allSuccessful
+        ? 'Direct upload and publish succeeded! (0 MB Supabase / Server storage used)'
+        : 'Some or all uploads had errors.',
+    });
+  } catch (err: any) {
+    console.error('[Direct Publish Route Exception]:', err);
+    return NextResponse.json({ error: err.message || 'Internal server error' }, { status: 500 });
+  }
+}

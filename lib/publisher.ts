@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from './supabaseServer';
 import { getValidAccessToken } from './oauthTokens';
 import { logAudit } from './auditLogger';
+import { uploadDirectToInstagramReels, uploadDirectToFacebookPage } from './metaDirectUpload';
 
 export interface PublishResult {
   success: boolean;
@@ -112,21 +113,21 @@ export async function executePublishPost(postId: string): Promise<PublishResult>
 
       if (hasMedia) {
         if (isVideo) {
-          // Publish Video to Facebook Page
-          const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/videos`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              file_url: post.media_url,
-              description: messageContent,
-              access_token: accessToken,
-            }),
-          });
-          const fbData = await fbRes.json();
-          if (!fbRes.ok || fbData.error) {
-            handleMetaApiError(fbData.error);
+          // Stream Video directly to Facebook Page (Zero disk storage)
+          const mediaRes = await fetch(post.media_url);
+          if (!mediaRes.ok) {
+            throw new Error(`Failed to load video file: ${mediaRes.statusText}`);
           }
-          externalPostId = fbData.id;
+          const videoBuffer = Buffer.from(await mediaRes.arrayBuffer());
+          const fbRes = await uploadDirectToFacebookPage({
+            videoBuffer,
+            fileName: post.media_name || 'video.mp4',
+            title: post.title || '',
+            description: messageContent,
+            pageId,
+            pageAccessToken: accessToken,
+          });
+          externalPostId = fbRes.videoId;
         } else {
           // Publish Photo to Facebook Page
           const fbRes = await fetch(`https://graph.facebook.com/v22.0/${pageId}/photos`, {
@@ -171,65 +172,55 @@ export async function executePublishPost(postId: string): Promise<PublishResult>
         throw new Error('Instagram requires a public image or video URL to publish.');
       }
 
-      // Step A: Create Media Container
-      const containerEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media`;
-      const containerParams = new URLSearchParams({
-        caption: messageContent,
-        access_token: accessToken,
-        ...(isVideo 
-          ? { video_url: post.media_url, media_type: 'REELS' } 
-          : { image_url: post.media_url }
-        ),
-      });
-
-      const containerRes = await fetch(`${containerEndpoint}?${containerParams.toString()}`, {
-        method: 'POST',
-      });
-      const containerData = await containerRes.json();
-
-      if (!containerRes.ok || containerData.error) {
-        handleMetaApiError(containerData.error, true);
-      }
-
-      const creationId = containerData.id;
-
-      // Step B: Polling Status (Crucial for video/reels encoding on Meta)
       if (isVideo) {
-        let isReady = false;
-        for (let i = 0; i < 15; i++) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-          const statusRes = await fetch(
-            `https://graph.facebook.com/v22.0/${creationId}?fields=status_code,status&access_token=${accessToken}`
-          );
-          const statusData = await statusRes.json();
-          if (statusData.status_code === 'FINISHED') {
-            isReady = true;
-            break;
-          } else if (statusData.status_code === 'ERROR') {
-            throw new Error('Instagram Reel video processing failed on Meta servers. Please ensure the video is under 15 minutes, standard MP4/MOV, and 9:16 or 16:9 ratio.');
-          }
+        // Direct Resumable Upload to Instagram Reels (Zero disk / zero Supabase storage)
+        const mediaRes = await fetch(post.media_url);
+        if (!mediaRes.ok) {
+          throw new Error(`Failed to load video file: ${mediaRes.statusText}`);
         }
-        if (!isReady) {
-          // Proceed to attempt publish after delay if status endpoint didn't reply FINISHED
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
+        const videoBuffer = Buffer.from(await mediaRes.arrayBuffer());
+        const igRes = await uploadDirectToInstagramReels({
+          videoBuffer,
+          fileSizeBytes: videoBuffer.byteLength,
+          caption: messageContent,
+          igUserId,
+          accessToken,
+        });
+        externalPostId = igRes.postId;
       } else {
-        // Photos usually take 1.5 - 2 seconds
+        // Step A: Create Image Media Container
+        const containerEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media`;
+        const containerParams = new URLSearchParams({
+          caption: messageContent,
+          access_token: accessToken,
+          image_url: post.media_url,
+        });
+
+        const containerRes = await fetch(`${containerEndpoint}?${containerParams.toString()}`, {
+          method: 'POST',
+        });
+        const containerData = await containerRes.json();
+
+        if (!containerRes.ok || containerData.error) {
+          handleMetaApiError(containerData.error, true);
+        }
+
+        const creationId = containerData.id;
         await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        // Step B: Publish Image Container
+        const publishEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media_publish`;
+        const publishRes = await fetch(`${publishEndpoint}?creation_id=${creationId}&access_token=${accessToken}`, {
+          method: 'POST',
+        });
+        const publishData = await publishRes.json();
+
+        if (!publishRes.ok || publishData.error) {
+          handleMetaApiError(publishData.error, true);
+        }
+
+        externalPostId = publishData.id;
       }
-
-      // Step C: Publish Media Container
-      const publishEndpoint = `https://graph.facebook.com/v22.0/${igUserId}/media_publish`;
-      const publishRes = await fetch(`${publishEndpoint}?creation_id=${creationId}&access_token=${accessToken}`, {
-        method: 'POST',
-      });
-      const publishData = await publishRes.json();
-
-      if (!publishRes.ok || publishData.error) {
-        handleMetaApiError(publishData.error, true);
-      }
-
-      externalPostId = publishData.id;
     }
     // -------------------------------------------------------------
     // THREADS PUBLISHING (Meta Threads API)

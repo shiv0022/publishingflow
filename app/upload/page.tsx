@@ -19,8 +19,6 @@ export default function UploadPage() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState('');
-  const [uploadedUrl, setUploadedUrl] = useState('');
-  const [isUploading, setIsUploading] = useState(false);
   const [mediaType, setMediaType] = useState<'image' | 'video'>('video');
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
@@ -62,14 +60,12 @@ export default function UploadPage() {
     setMediaFile(file);
     setMediaType(file.type.startsWith('video') ? 'video' : 'image');
     setMediaPreview(URL.createObjectURL(file));
-    setUploadedUrl('');
     setPublishResults([]);
   };
 
   const clearMedia = () => {
     setMediaFile(null);
     setMediaPreview('');
-    setUploadedUrl('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -80,26 +76,6 @@ export default function UploadPage() {
       else next.add(id);
       return next;
     });
-  };
-
-  const uploadFile = async (): Promise<string> => {
-    if (!mediaFile) return '';
-    if (uploadedUrl) return uploadedUrl;
-
-    setIsUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', mediaFile);
-      const res = await fetch('/api/upload', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.url) {
-        setUploadedUrl(data.url);
-        return data.url;
-      }
-      throw new Error(data.error || 'Upload failed');
-    } finally {
-      setIsUploading(false);
-    }
   };
 
   const handlePublishNow = async () => {
@@ -117,52 +93,77 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      let finalMediaUrl = '';
       if (mediaFile) {
-        finalMediaUrl = await uploadFile();
-      }
+        // Direct stream to Meta / YouTube without saving to Supabase Storage or Server Disk
+        const fd = new FormData();
+        fd.append('file', mediaFile);
+        fd.append('title', title.trim());
+        fd.append('caption', caption.trim());
+        fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
 
-      const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
-      const results: Array<{ platform: string; success: boolean; error?: string }> = [];
+        const res = await fetch('/api/publish/direct', {
+          method: 'POST',
+          body: fd,
+        });
+        const data = await res.json();
 
-      for (const acc of selectedList) {
-        try {
-          const post = await addPost({
-            clientName: acc.clientName,
-            platform: acc.platform,
-            accountId: acc.id,
-            title: title.trim(),
-            caption: caption.trim(),
-            description: '',
-            mediaUrl: finalMediaUrl || undefined,
-            mediaType: finalMediaUrl ? mediaType : undefined,
-            mediaName: mediaFile?.name || undefined,
-            isScheduled: false,
-            status: 'draft',
-          });
-
-          const res = await fetch('/api/publish', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ postId: post.id }),
-          });
-          const data = await res.json();
-
-          if (data.success) {
-            results.push({ platform: acc.platform, success: true });
-          } else {
-            results.push({ platform: acc.platform, success: false, error: data.error });
-          }
-        } catch (err: any) {
-          results.push({ platform: acc.platform, success: false, error: err.message });
+        if (data.results) {
+          setPublishResults(
+            data.results.map((r: any) => ({
+              platform: r.platform,
+              success: r.success,
+              error: r.error,
+            }))
+          );
         }
-      }
 
-      setPublishResults(results);
-      await refreshData();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Direct publishing failed');
+        }
 
-      if (results.every(r => r.success)) {
+        await refreshData();
         setTimeout(() => router.push('/dashboard'), 2000);
+      } else {
+        // Text-only post fallback
+        const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
+        const results: Array<{ platform: string; success: boolean; error?: string }> = [];
+
+        for (const acc of selectedList) {
+          try {
+            const post = await addPost({
+              clientName: acc.clientName,
+              platform: acc.platform,
+              accountId: acc.id,
+              title: title.trim(),
+              caption: caption.trim(),
+              description: '',
+              isScheduled: false,
+              status: 'draft',
+            });
+
+            const res = await fetch('/api/publish', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ postId: post.id }),
+            });
+            const data = await res.json();
+
+            if (data.success) {
+              results.push({ platform: acc.platform, success: true });
+            } else {
+              results.push({ platform: acc.platform, success: false, error: data.error });
+            }
+          } catch (err: any) {
+            results.push({ platform: acc.platform, success: false, error: err.message });
+          }
+        }
+
+        setPublishResults(results);
+        await refreshData();
+
+        if (results.every(r => r.success)) {
+          setTimeout(() => router.push('/dashboard'), 2000);
+        }
       }
     } catch (err: any) {
       setSubmitError(err.message || 'Publishing failed');
@@ -190,33 +191,58 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      let finalMediaUrl = '';
       if (mediaFile) {
-        finalMediaUrl = await uploadFile();
-      }
+        // Direct stream to Meta with scheduled_publish_time (Zero Supabase Storage)
+        const fd = new FormData();
+        fd.append('file', mediaFile);
+        fd.append('title', title.trim());
+        fd.append('caption', caption.trim());
+        fd.append('accountIds', JSON.stringify(Array.from(selectedAccounts)));
+        fd.append('scheduleTime', scheduleTime);
 
-      const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
-      const normalizedScheduledAt = new Date(scheduleTime).toISOString();
-
-      for (const acc of selectedList) {
-        await addPost({
-          clientName: acc.clientName,
-          platform: acc.platform,
-          accountId: acc.id,
-          title: title.trim(),
-          caption: caption.trim(),
-          description: '',
-          mediaUrl: finalMediaUrl || undefined,
-          mediaType: finalMediaUrl ? mediaType : undefined,
-          mediaName: mediaFile?.name || undefined,
-          isScheduled: true,
-          scheduledAt: normalizedScheduledAt,
-          status: 'scheduled',
+        const res = await fetch('/api/publish/direct', {
+          method: 'POST',
+          body: fd,
         });
-      }
+        const data = await res.json();
 
-      await refreshData();
-      router.push('/dashboard');
+        if (data.results) {
+          setPublishResults(
+            data.results.map((r: any) => ({
+              platform: r.platform,
+              success: r.success,
+              error: r.error,
+            }))
+          );
+        }
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Direct scheduling failed');
+        }
+
+        await refreshData();
+        router.push('/dashboard');
+      } else {
+        const selectedList = connectedAccounts.filter(a => selectedAccounts.has(a.id));
+        const normalizedScheduledAt = new Date(scheduleTime).toISOString();
+
+        for (const acc of selectedList) {
+          await addPost({
+            clientName: acc.clientName,
+            platform: acc.platform,
+            accountId: acc.id,
+            title: title.trim(),
+            caption: caption.trim(),
+            description: '',
+            isScheduled: true,
+            scheduledAt: normalizedScheduledAt,
+            status: 'scheduled',
+          });
+        }
+
+        await refreshData();
+        router.push('/dashboard');
+      }
     } catch (err: any) {
       setSubmitError(err.message || 'Scheduling failed');
     } finally {
@@ -492,11 +518,11 @@ export default function UploadPage() {
             <button
               type="button"
               onClick={handlePublishNow}
-              disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
+              disabled={isSubmitting || selectedAccounts.size === 0}
               className="btn btn-primary btn-lg"
               style={{ height: '52px', fontSize: '1rem' }}
             >
-              {isSubmitting || isUploading ? (
+              {isSubmitting ? (
                 <>
                   <Loader2 size={18} className="spinner" />
                   <span>Publishing...</span>
@@ -521,7 +547,7 @@ export default function UploadPage() {
               <button
                 type="button"
                 onClick={handleSchedule}
-                disabled={isSubmitting || isUploading || selectedAccounts.size === 0}
+                disabled={isSubmitting || selectedAccounts.size === 0}
                 className="btn btn-secondary"
                 style={{ height: '40px' }}
               >
