@@ -215,28 +215,47 @@ export default function UploadPage() {
     setCaption(prev => prev ? `${prev} ${ht}` : ht);
   };
 
-  // Prepare media payload: if file > 4 MB, upload to temporary transit bucket directly from browser
-  // This bypasses Vercel's 4.5 MB proxy limit, and backend purges the transit file immediately (0 MB permanent storage)
+  // Prepare media payload: if file > 4 MB, upload to temporary transit bucket directly from browser via signed upload authorization
+  // This bypasses Vercel's 4.5 MB proxy limit AND Supabase RLS restrictions, and backend purges the transit file immediately (0 MB permanent storage)
   const prepareMediaPayload = async (): Promise<{ mediaUrl?: string; tempStoragePath?: string; fileToSend?: File }> => {
     if (mediaFile) {
       if (mediaFile.size > 4 * 1024 * 1024) {
         if (!supabase) {
           throw new Error('Supabase client is not available for direct transit upload.');
         }
-        const ext = mediaFile.name.split('.').pop() || 'mp4';
-        const transitPath = `temp-transit/${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${ext}`;
-        
-        const { error: upErr } = await supabase.storage.from('media').upload(transitPath, mediaFile, {
-          contentType: mediaFile.type,
-          upsert: true,
-        });
 
-        if (upErr) {
-          throw new Error(`Direct transit upload error: ${upErr.message}`);
+        // 1. Authorize transit upload via server-side service-role client (bypasses RLS)
+        const signRes = await fetch('/api/upload/transit-sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileName: mediaFile.name }),
+        });
+        const signData = await signRes.json();
+        if (!signRes.ok || !signData.token || !signData.path) {
+          throw new Error(signData.error || 'Failed to authorize secure transit upload');
         }
 
-        const { data: pubData } = supabase.storage.from('media').getPublicUrl(transitPath);
-        return { mediaUrl: pubData.publicUrl, tempStoragePath: transitPath };
+        // 2. Direct browser upload to signed URL (zero RLS violations)
+        const { error: upErr } = await supabase.storage
+          .from('media')
+          .uploadToSignedUrl(signData.path, signData.token, mediaFile, {
+            contentType: mediaFile.type,
+            upsert: true,
+          });
+
+        if (upErr) {
+          // Direct PUT fallback to signedUrl
+          const putRes = await fetch(signData.signedUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': mediaFile.type },
+            body: mediaFile,
+          });
+          if (!putRes.ok) {
+            throw new Error(`Direct transit upload error: ${upErr.message}`);
+          }
+        }
+
+        return { mediaUrl: signData.publicUrl, tempStoragePath: signData.path };
       }
       return { fileToSend: mediaFile };
     }
